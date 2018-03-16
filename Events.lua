@@ -144,15 +144,17 @@ ns.FeignEvent = function( event, ... )
 end
 
 
-RegisterEvent( "UPDATE_BINDINGS", function () ns.refreshBindings() end )
+RegisterEvent( "UPDATE_BINDINGS", function () Hekili:RefreshBindings() end )
 RegisterEvent( "DISPLAY_SIZE_CHANGED", function () ns.buildUI() end )
 
 
 local itemAuditComplete = false
+local itemAuditDB = {}
 
 function ns.auditItemNames()
 
     local failure = false
+    table.wipe( itemAuditDB )
 
     for key, ability in pairs( class.abilities ) do
         if ability.recheck_name then
@@ -164,14 +166,18 @@ function ns.auditItemNames()
                 ability.link = link
                 ability.elem.name = name
                 ability.elem.texture = select( 10, GetItemInfo( ability.item ) )
+                ability.elem.recheck_name = nil
 
-                class.abilities[ name ] = ability
+                itemAuditDB[ name ] = ability
                 class.searchAbilities[ ability.key ] = format( "|T%s:0|t %s", ( ability.texture or 'Interface\\ICONS\\Spell_Nature_BloodLust' ), link )
-                ability.recheck_name = nil
             else
                 failure = true
             end
         end
+    end
+
+    for key, info in pairs( itemAuditDB ) do
+        class.abilities[ key ] = info
     end
 
     if failure then
@@ -681,7 +687,18 @@ local function CLEU_HANDLER( event, _, subtype, _, sourceGUID, sourceName, _, _,
             state.player.queued_tt = nil
             state.player.queued_lands = nil
             state.player.queued_gcd = nil
-            state.player.queued_off = nil           
+            state.player.queued_off = nil
+
+            local action = class.abilities[ spellID ]
+            local switch = Hekili:GetAbilitySwitch( spellID )
+
+            if action and switch then
+                local s = Hekili.DB.profile.switches[ switch ]
+
+                if not s.active and s.auto then
+                    Hekili:AutoToggleSwitch( switch )
+                end
+            end
         end
 
         Hekili:ForceUpdate( subtype, true )

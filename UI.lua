@@ -67,26 +67,11 @@ end
 local function Mover_OnMouseUp(self, btn)
     if (btn == "LeftButton" and self.Moving) then
         stopScreenMovement(self)
-    elseif (btn == "RightButton" and not Hekili.Config) then
-        if self.Moving then
-            stopScreenMovement(self)
-        end
-        Hekili.DB.profile.Locked = true
-        local MouseInteract = Hekili.Pause or Hekili.Config or not Hekili.DB.profile.Locked
-        for i = 1, #ns.UI.Buttons do
-            for j = 1, #ns.UI.Buttons[i] do
-                ns.UI.Buttons[i][j]:EnableMouse(MouseInteract)
-            end
-        end
-        ns.UI.Notification:EnableMouse(Hekili.Config or (not Hekili.DB.profile.Locked))
-        -- Hekili:SetOption( { "locked" }, true )
-        GameTooltip:Hide()
     end
-    Hekili:SaveCoordinates()
 end
 
 local function Mover_OnMouseDown(self, btn)
-    if (Hekili.Config or not Hekili.DB.profile.Locked) and btn == "LeftButton" and not self.Moving then
+    if Hekili.Config and btn == "LeftButton" and not self.Moving then
         startScreenMovement(self)
     end
 end
@@ -96,28 +81,13 @@ local function Button_OnMouseUp(self, btn)
     local mover = _G["HekiliDisplay" .. display]
     if (btn == "LeftButton" and mover.Moving) then
         stopScreenMovement(mover)
-    elseif (btn == "RightButton" and not Hekili.Config) then
-        if mover.Moving then
-            stopScreenMovement(mover)
-        end
-        Hekili.DB.profile.Locked = true
-        local MouseInteract = (Hekili.Pause) or Hekili.Config or (not Hekili.DB.profile.Locked)
-        for i = 1, #ns.UI.Buttons do
-            for j = 1, #ns.UI.Buttons[i] do
-                ns.UI.Buttons[i][j]:EnableMouse(MouseInteract)
-            end
-        end
-        ns.UI.Notification:EnableMouse(Hekili.Config or (not Hekili.DB.profile.Locked))
-        -- Hekili:SetOption( { "locked" }, true )
-        GameTooltip:Hide()
     end
-    Hekili:SaveCoordinates()
 end
 
 local function Button_OnMouseDown(self, btn)
     local display = self:GetName():match("Hekili_D(%d+)_B(%d+)")
     local mover = _G["HekiliDisplay" .. display]
-    if (Hekili.Config or not Hekili.DB.profile.Locked) and btn == "LeftButton" and not mover.Moving then
+    if Hekili.Config and btn == "LeftButton" and not mover.Moving then
         startScreenMovement(mover)
     end
 end
@@ -229,7 +199,7 @@ function ns.StartConfiguration(external)
     -- HekiliNotification:SetMovable(true)
     if not external then
         local ACD = LibStub("AceConfigDialog-3.0")
-        ACD:SetDefaultSize("Hekili", min(900, GetScreenWidth() - 200), min(800, GetScreenHeight() - 100))
+        ACD:SetDefaultSize("Hekili", 800, 600)
         ACD:Open("Hekili")
         ns.OnHideFrame = ns.OnHideFrame or CreateFrame("Frame", nil)
         ns.OnHideFrame:SetParent(ACD.OpenFrames["Hekili"].frame)
@@ -249,12 +219,12 @@ function ns.StopConfiguration()
 
     local scaleFactor = Hekili:GetScale()
 
-    local MouseInteract = (Hekili.Pause) or (not Hekili.DB.profile.Locked)
+    local MouseInteract = Hekili.Pause
 
     for i, v in ipairs(ns.UI.Buttons) do
         for j, btn in ipairs(v) do
             btn:EnableMouse(MouseInteract)
-            btn:SetMovable(not Hekili.DB.profile.Locked)
+            btn:SetMovable(false)
         end
     end
 
@@ -295,19 +265,6 @@ local function menu_Enabled()
     Hekili:Toggle()
 end
 
-local function menu_Locked()
-    local p = Hekili.DB.profile
-
-    p.Locked = not p.Locked
-
-    local MouseInteract = Hekili.Pause or Hekili.Config or (not p.Locked)
-
-    for _, v in ipairs(ns.UI.Buttons) do
-        v[1]:EnableMouse(MouseInteract)
-    end
-    ns.UI.Notification:EnableMouse(MouseInteract)
-end
-
 local function menu_Paused()
     Hekili:TogglePause()
 end
@@ -315,23 +272,23 @@ end
 local function menu_Auto()
     local p = Hekili.DB.profile
 
-    p["Mode Status"] = 3
-    p["Switch Type"] = 0
+    p.mode = 3
+    p.switchType = 0
     ns.UI.Minimap:RefreshDataText()
 end
 
 local function menu_AOE()
     local p = Hekili.DB.profile
 
-    p["Mode Status"] = 2
-    p["Switch Type"] = 0
+    p.mode = 2
+    p.switchType = 0
     ns.UI.Minimap:RefreshDataText()
 end
 
 local function menu_Single()
     local p = Hekili.DB.profile
 
-    p["Mode Status"] = 0
+    p.mode = 0
     ns.UI.Minimap:RefreshDataText()
 end
 
@@ -379,12 +336,7 @@ Hekili_Menu.initialize = function(self, level)
 
         i.text = "Enable"
         i.func = menu_Enabled
-        i.checked = p.Enabled
-        UIDropDownMenu_AddButton(i, level)
-
-        i.text = "Lock"
-        i.func = menu_Locked
-        i.checked = p.Locked
+        i.checked = p.enabled
         UIDropDownMenu_AddButton(i, level)
 
         i.text = " "
@@ -407,17 +359,17 @@ Hekili_Menu.initialize = function(self, level)
 
         i.text = "Single-Target"
         i.func = menu_Single
-        i.checked = p["Mode Status"] == 0
+        i.checked = p.mode == 0
         UIDropDownMenu_AddButton(i, level)
 
         i.text = "AOE"
         i.func = menu_AOE
-        i.checked = p["Mode Status"] == 2
+        i.checked = p.mode == 2
         UIDropDownMenu_AddButton(i, level)
 
         i.text = "Automatic"
         i.func = menu_Auto
-        i.checked = p["Mode Status"] == 3
+        i.checked = p.mode == 3
         UIDropDownMenu_AddButton(i, level)
 
         i.notCheckable = nil
@@ -552,12 +504,11 @@ do
         end
 
         local prof = Hekili.DB.profile
-        local conf, switch, mode = prof.displays[id], prof["Switch Type"], prof["Mode Status"]
+        local conf, switch, mode = prof.displays[id], prof.switchType, prof.mode
 
         local _, zoneType = IsInInstance()
 
-        if
-            (not conf.Enabled) or (switch == 0 and not conf.showSwitchAuto) or (switch == 1 and not conf.showSwitchAE) or
+        if (not conf.Enabled) or (switch == 0 and not conf.showSwitchAuto) or (switch == 1 and not conf.showSwitchAE) or
                 (mode == 0 and not conf.showST) or
                 (mode == 3 and not conf.showAuto) or
                 (mode == 2 and not conf.showAE)
@@ -868,7 +819,7 @@ do
 
             if conf.showTargets then
                 local tMin, tMax = 0, 0
-                local mode = profile["Mode Status"]
+                local mode = profile.mode
 
                 -- Primary Display
                 if conf.displayType == "a" then
@@ -1280,7 +1231,7 @@ do
             d.Buttons[i] = self:CreateButton(id, i)
             d.Buttons[i]:Hide()
 
-            if self.DB.profile.Enabled and self:IsDisplayActive(id) and i <= conf.numIcons then
+            if self.DB.profile.enabled and self:IsDisplayActive(id) and i <= conf.numIcons then
                 if d.Recommendations[i] and d.Recommendations[i].actionName then
                     d.Buttons[i]:Show()
                 end
@@ -1310,7 +1261,7 @@ do
             actsActive[a] = nil
         end
 
-        if profile.Enabled then
+        if profile.enabled then
             for i, display in ipairs(profile.displays) do
                 if display.Enabled and (display.Specialization == 0 or display.Specialization == state.spec.id) then
                     dispActive[i] = true
@@ -1684,14 +1635,11 @@ do
         b:SetScript(
             "OnEnter",
             function(self)
-                if (not Hekili.Pause) or (Hekili.Config or not Hekili.DB.profile.Locked) then
+                if (not Hekili.Pause) or Hekili.Config then
                     ns.Tooltip:SetOwner(self, "ANCHOR_TOPRIGHT")
                     ns.Tooltip:SetBackdropColor(0, 0, 0, 1)
                     ns.Tooltip:SetText(Hekili.DB.profile.displays[dispID].Name .. " (" .. dispID .. ")")
                     ns.Tooltip:AddLine("Left-click and hold to move.", 1, 1, 1)
-                    if not Hekili.Config or not Hekili.DB.profile.Locked then
-                        ns.Tooltip:AddLine("Right-click to lock all and close.", 1, 1, 1)
-                    end
                     ns.Tooltip:Show()
                     self:SetMovable(true)
                 elseif (Hekili.Pause and ns.queue[dispID] and ns.queue[dispID][id]) then
@@ -1707,8 +1655,8 @@ do
             end
         )
 
-        b:EnableMouse(not Hekili.DB.profile.Locked)
-        b:SetMovable(not Hekili.DB.profile.Locked)
+        b:EnableMouse(Hekili.Config)
+        b:SetMovable(Hekili.Config)
 
         return b
     end
@@ -1727,17 +1675,19 @@ function ns.buildUI()
     end
 
     ns.UI.Keyhandler = ns.UI.Keyhandler or CreateFrame("Button", "Hekili_Keyhandler", UIParent)
-    ns.UI.Keyhandler:RegisterForClicks("AnyDown")
+    ns.UI.Keyhandler:RegisterForClicks("anyDown")
     ns.UI.Keyhandler:SetScript(
         "OnClick",
         function(self, button, down)
-            Hekili:ClassToggle(button)
+            Hekili:ToggleSwitch(button)
         end
     )
 
+    Hekili.UI = ns.UI
+
     local scaleFactor = Hekili:GetScale()
 
-    local MouseInteract = (Hekili.Pause) or (not Hekili.DB.profile.Locked)
+    local MouseInteract = Hekili.Pause or Hekili.Config
 
     local f = ns.UI.Notification or CreateFrame("Frame", "HekiliNotification", UIParent)
     f:SetSize(

@@ -1597,59 +1597,25 @@ ns.metatables.mt_stances = mt_stances
 -- Table of supported toggles (via keybinding).
 -- Need to add a commandline interface for these, but for some reason, I keep neglecting that.
 local mt_toggle = {
-    __index = function(t, k)
+    __index = function( t, k )
         if metafunctions.toggle[ k ] then
             return metafunctions.toggle[ k ]()
-            
-        elseif k == 'cooldowns' then
-            return ( Hekili.DB.profile.Cooldowns or ( Hekili.DB.profile.BloodlustCooldowns and state.buff.bloodlust.up ) ) or false
-
-        elseif k == 'artifact' then
-            return ( Hekili.DB.profile.Artifact or ( Hekili.DB.profile.CooldownArtifact and state.toggle.cooldowns ) ) or false
-            
-        elseif k == 'potions' then
-            return Hekili.DB.profile.Potions or false
-            
-        elseif k == 'hardcasts' then
-            return Hekili.DB.profile.Hardcasts or false
-            
-        elseif k == 'interrupts' then
-            return Hekili.DB.profile.Interrupts or false
-            
-        elseif k == 'one' then
-            return Hekili.DB.profile.Toggle_1 or false
-            
-        elseif k == 'two' then
-            return Hekili.DB.profile.Toggle_2 or false
-            
-        elseif k == 'three' then
-            return Hekili.DB.profile.Toggle_3 or false
-            
-        elseif k == 'four' then
-            return Hekili.DB.profile.Toggle_4 or false
-            
-        elseif k == 'five' then
-            return Hekili.DB.profile.Toggle_5 or false
-            
-        elseif k == 'mode' then
-            return Hekili.DB.profile['Mode Status']
-            
-        else
-            if Hekili.DB.profile[ 'Toggle State: '.. k ] ~= nil then
-                return Hekili.DB.profile[ 'Toggle State: '..k ]
-            end
-            
-            -- check custom names
-            for i = 1, 5 do
-                if k == Hekili.DB.profile['Toggle '..i..' Name'] then
-                    return Hekili.DB.profile['Toggle_'..i] or false
-                end
-            end
-            
-            return
-            
         end
-    end
+
+        local s = Hekili.DB.char.switches
+        local p = Hekili.DB.profile
+
+        local data = rawget( p.switches, k )
+
+        if data then
+            if s[ k ] then return true end
+            if data.swOverride and state.toggle[ data.swOverride ] then return true end
+            if data.blOverride and state.buff.bloodlust.up then return true end
+            return false
+        end
+
+        return false
+    end,
 }
 ns.metatables.mt_toggle = mt_toggle
 
@@ -3380,7 +3346,7 @@ function state.reset( dispID )
     local display = dispID and Hekili.DB.profile.displays[ dispID ]
     
     if display then
-        local mode = Hekili.DB.profile['Mode Status'] or 0
+        local mode = Hekili.DB.profile.mode or 0
         
         -- 0 = single
         -- 2 = cleave
@@ -3860,12 +3826,13 @@ do
 
         local profile = Hekili.DB.profile
 
-        if profile.blacklist and profile.blacklist[ ability.key ] then
+        if profile.abilities[ ability.key ].disabled then
             return true
         end
 
-        local toggle = profile.toggles[ ability.key ]
-        if not toggle or toggle == 'default' then toggle = ability.toggle end
+        local toggle = profile.abilities[ ability.key ].toggle
+        if not toggle or toggle == 'default' then toggle = ability.toggle
+        elseif toggle == 'none' then toggle = nil end
 
         if toggle and not state.toggle[ toggle ] then
             return true
@@ -4097,7 +4064,7 @@ end
 
 ns.clashOffset = function( action )
     
-    local clash = Hekili.DB.profile.clashes[ action ] or Hekili.DB.profile.Clash
+    local clash = Hekili.DB.profile.abilities[ action ].clash or 0
     return ns.callHook( "clash", clash, action )
     
 end

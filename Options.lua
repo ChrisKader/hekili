@@ -11,6 +11,8 @@ local state = ns.state
 local format = string.format
 local match = string.match
 
+local table_wipe = table.wipe
+
 local callHook = ns.callHook
 local restoreDefaults = ns.restoreDefaults
 local getSpecializationID = ns.getSpecializationID
@@ -20,341 +22,143 @@ local fsub = ns.fsub
 local formatKey = ns.formatKey
 local orderedPairs = ns.orderedPairs
 local tableCopy = ns.tableCopy
+local titleCase = ns.titleCase
 
 
 local LDB = LibStub( "LibDataBroker-1.1", true )
 local LDBIcon = LibStub( "LibDBIcon-1.0", true )
 
 
--- Default Table
-function Hekili:GetDefaults()
-    local defaults = {
-        profile = {
-            Version = 7,
-            Release = 20170300,
-            Legion = true,
-            Enabled = true,
-            Locked = true,
-            MinimapIcon = false,
+local defaultFont = ElvUI and 'PT Sans Narrow' or 'Arial Narrow'
 
-            Artifact = true,
-            CooldownArtifact = true,
+local styleTemplate = {
+    pos = {
+        x = 0,
+        y = -250,
+        point = "CENTER",
+        frame = "SCREEN",
+        framePoint = "CENTER"
+    },
 
-            moreCPU = false,
-            
-            ['Switch Type'] = 0,
-            ['Mode Status'] = 3,
-            Interrupts = false,
-            
-            Clash = 0,
-            ['Audit Targets'] = 6,
-            ['Count Nameplate Targets'] = true,
-            ['Nameplate Detection Range'] = 8,
-            ['Count Targets by Damage'] = false,
-            
-            ['Notification Enabled'] = true,
-            ['Notification Font'] = 'Arial Narrow',
-            ['Notification X'] = 0,
-            ['Notification Y'] = 0,
-            ['Notification Width'] = 600,
-            ['Notification Height'] = 40,
-            ['Notification Font Size'] = 20,
-            
-            displays = {
-            },
-            actionLists = {
-            },
-            runOnce = {
-            },
-            
-            
-            toggles = {
-            },
-            blacklist = {
-            },
-            clashes = {
-            },
-
-            trinkets = {
-            },
-
-            
-            iconStore = {
-                hide = false,
-            },
-        },
-    }
+    numIcons = 4,
     
-    return defaults
-end
+    primary = {
+        width = 50,
+        height = 50,
 
+        zoom = 30,
+        keepAspectRatio = true,
 
-local defaultAPLs = {
-    ['Survival Primary'] = { "SimC Survival: precombat", "SimC Survival: default" },
-    ['Survival AOE'] = { "SimC Survival: precombat", "SimC Survival: default" },
-    
-    ['Windwalker Primary'] = { "SimC Windwalker: precombat", "SimC Windwalker: default" },
-    ['Windwalker AOE'] = { "SimC Windwalker: precombat", "SimC Windwalker: default" },
-    
-    ['Brewmaster Primary'] = { 0, "Brewmaster: Default" },
-    ['Brewmaster AOE'] = { 0, "Brewmaster: Default" },
-    ['Brewmaster Defensives'] = { 0, "Brewmaster: Defensives" },
-    
-    ['Enhancement Primary'] = { 'SimC Enhancement: precombat', 'SimC Enhancement: default' },
-    ['Enhancement AOE'] = { 'SimC Enhancement: precombat', 'SimC Enhancement: default' },
-    
-    ['Elemental Primary'] = { 'SEL Elemental Precombat', 'SEL Elemental Default' },
-    ['Elemental AOE'] = { 'SEL Elemental Precombat', 'SEL Elemental Default' },
-    
-    ['Retribution Primary'] = { 'SimC Retribution: precombat', 'SimC Retribution: default' },
-    ['Retribution AOE'] = { 'SimC Retribution: precombat', 'SimC Retribution: default' },
-    
-    ['Protection Primary'] = { 0, 'Protection Default' }
-} 
+        font = defaultFont,
+        size = 14
+    },
 
+    queue = {
+        width = 50,
+        height = 50,
 
--- One Time Fixes
-local oneTimeFixes = {
-    turnOffDebug_04162017 = function( profile )
-        profile.Debug = nil
-    end,
-    
-    attachDefaultAPLs_04022017 = function( profile )
-        for dID, display in ipairs( profile.displays ) do
-            local APLs = defaultAPLs[ display.Name ]
-            
-            if APLs then
-                local precombat, default = 0, 0
-                
-                for i, list in ipairs( Hekili.DB.profile.actionLists ) do
-                    if list.Name == APLs[1] then precombat = i end
-                    if list.Name == APLs[2] then default = i end
-                end
-                
-                if precombat > 0 and display.precombatAPL == 0 then display.precombatAPL = precombat end
-                if default > 0 and display.defaultAPL == 0 then display.defaultAPL = default end
-            end
-        end
-    end,
-    
-    setDisplayTypes_04022017 = function( profile )
-        for d, display in ipairs( profile.displays ) do
-            if display.Name:match( "Primary" ) then
-                display.displayType = 'a'
-                display.showST = true
-                display.showAE = true
-                display.showAuto = true
-            elseif display.Name:match( "AOE" ) then
-                display.displayType = 'c'
-                display.showST = true
-                display.showAE = false
-                display.showAuto = false
-            end
-        end
-    end,
-    
-    removeActionListEnabled_04102017 = function( profile )
-        for a, list in ipairs( profile.actionLists ) do
-            list.Enabled = nil
-        end
-    end,
-    
-    removeExtraQuotes_04142017_3 = function( profile )
-        for a, list in ipairs( profile.actionLists ) do
-            for _, entry in ipairs( list.Actions ) do
-                if entry.ModName then entry.ModName = entry.ModName:gsub( [["(.*)"]], [[%1]] ) end
-            end
-        end
-    end,
-    
-    spruceUpActionListNames_04162017 = function( profile )
-        for _, list in ipairs( profile.actionLists ) do
-            for _, entry in ipairs( list.Actions ) do
-                if entry.Args and entry.Args:match( "name=" ) then
-                    if entry.Ability == 'variable' and not entry.ModVarName then
-                        entry.ModVarName = entry.Args:match( [[name="(.-)"]] )
-                    else
-                        entry.ModName = entry.Args:match( [[name="(.-)"]] )
-                    end
-                end
-            end
-        end
-    end,
+        zoom = 30,
+        keepAspectRatio = true,
 
-    dontDisableGlobalCooldownYouFools_05232017 = function( profile )
-        profile.blacklist.global_cooldown = nil
-    end,
+        anchor = 'RIGHT',
+        direction = 'RIGHT',
+        style = 'RIGHT',
+        alignment = 'c',
+        
+        font = defaultFont,
+        size = 14
+    },
 
-    useNewAPLsForDemonHunters_06132017_1 = function( profile )
-        local APL
+    border = {
+        enabled = true,
+        color = { r = 0, g = 0, b = 0, a = 1 }
+    },
 
-        for idx, list in ipairs( profile.actionLists ) do
-            if list.Name == "Icy Veins: Default" then
-                APL = idx
-            end
-        end
+    glow = {
+        primary = true,
+        queue = false
+    },
 
-        if APL then
-            for _, display in ipairs( profile.displays ) do
-                if display.Name == "Havoc Primary" or display.Name == "Havoc AOE" then
-                    display.precombatAPL = APL
-                    display.defaultAPL = APL
-                end
-            end
-        end
-    end,
+    range = {
+        enabled = true,
+        type = "ability"
+    },
 
-    forceRetToRefreshAPLsFor730_09012017 = function( profile )
-        if state.class.file == "PALADIN" then
-            local exists = {}
-            
-            for i, list in ipairs( profile.actionLists ) do
-                exists[ list.Name ] = i
-            end
-            
-            for i, default in ipairs( class.defaults ) do
-                if default.type == 'actionLists' then
-                    local index = exists[ default.name ] or #profile.actionLists + 1
-                    
-                    local import = ns.deserializeActionList( default.import )
-                    
-                    if import and type( import ) ~= 'string' then
-                        profile.actionLists[ index ] = import
-                        profile.actionLists[ index ].Name = default.name
-                        profile.actionLists[ index ].Release = default.version
-                        profile.actionLists[ index ].Default = true
-                    end
-                end
-            end
-            
-            ns.loadScripts()
-        end
-    end,
+    flash = {
+        enabled = true,
+        color = { r = 1, g = 1, b = 1, a = 1 }
+    },
 
-    disableTrinketsForMonks_10102017 = function( profile )
-        if state.class.file == "MONK" then
-            profile.trinkets = profile.trinkets or {}
-            profile.trinkets.vial_of_ceaseless_toxins = profile.trinkets.vial_of_ceaseless_toxins or {}
-            profile.trinkets.vial_of_ceaseless_toxins.disabled = true
-            profile.trinkets.umbral_moonglaives = profile.trinkets.umbral_moonglaives or {}
-            profile.trinkets.umbral_moonglaives.disabled = true
-        end
-    end,
+    captions = {
+        primary = false,
+        queue = false,
 
-    disableSpecterForPaladins_10102017 = function( profile )
-        if state.class.file == "PALADIN" then
-            profile.trinkets = profile.trinkets or {}
-            profile.trinkets.specter_of_betrayal = profile.trinkets.specter_of_betrayal or {}
-            profile.trinkets.specter_of_betrayal.disabled = true
-        end
-    end,
+        font = defaultFont,
+        size = 14,
+        style = "OUTLINE",
+        
+        x = 0,
+        y = 0
+    },
 
-    changeSwipesToSwipe_11052017 = function( profile )
-        for listID, list in ipairs( profile.actionLists ) do
-            for entryID, entry in ipairs( list.Actions ) do
-                if entry.Ability == "swipe_bear" or entry.Ability == "swipe_cat" then entry.Ability = "swipe" end
-            end
-        end
-    end,
+    indicators = {
+        primary = true,
+        queue = true,
 
-    --[[ changeIncarnation_11052017 = function( profile )
-        for listID, list in ipairs( profile.actionLists ) do
-            for entryID, entry in ipairs( list.Actions ) do
-                if entry.Ability == "incarnation" then entry.Ability = "incarnation_king_of_the_jungle" end
-            end
-        end
-    end, ]]
+        anchor = "RIGHT",
 
-    changeThrashCatToThrash_11062017 = function( profile )
-        for listID, list in ipairs( profile.actionLists ) do
-            for entryID, entry in ipairs( list.Actions ) do
-                if entry.Ability == "thrash_cat" or entry.Ability == "thrash_bear" then entry.Ability = "thrash" end
-            end
-        end
-    end,
+        x = 0,
+        y = 0
+    },
 
-    undoIncarnationNameChange_12042017 = function( profile )
-        for listID, list in ipairs( profile.actionLists ) do
-            for entryID, entry in ipairs( list.Actions ) do
-                if entry.Ability == "incarnation_king_of_the_jungle" then entry.Ability = "incarnation" end
-            end
-        end
-    end,        
+    targets = {
+        enabled = true,
 
-    elementalSimpleAOEis3_12132017 = function( profile )
-        for dispID, display in ipairs( profile.displays ) do
-            if display.Name == "Elemental AOE" and display.simpleAOE == 2 then
-                display.simpleAOE = 3
-            end
-        end
-    end,
+        font = defaultFont,
+        size = 14,
+        style = "OUTLINE",
 
-    reduceExtremeZoom_12182017 = function( profile )
-        for dispID, display in ipairs( profile.displays ) do
-            if display.iconZoom > 50 then display.iconZoom = 30 end
-        end        
-    end,
+        x = 0,
+        y = 0
+    },
 
-    changeGuardianAPLToSimC_2018012102 = function( profile )
-        if state.class.file == "DRUID" then
-            for dID, display in ipairs( profile.displays ) do
-                if display.Name == "Guardian Primary" then
-                    local precombatName = "SimC Guardian: precombat"
-                    local defaultName   = "SimC Guardian: default"
+    aura = {
+        enabled = false,
+        
+        aura = "buff",
+        spellID = 0,
+        unit = "player",
+        mine = true,
 
-                    local precombat, default = 0, 0
-                    
-                    for i, list in ipairs( Hekili.DB.profile.actionLists ) do
-                        if list.Name == precombatName then precombat = i end
-                        if list.Name == defaultName   then default   = i end
-                    end
-                    
-                    if precombat > 0 then display.precombatAPL = precombat end
-                    if default > 0   then display.defaultAPL   = default end
-                end
-            end
-        end
-    end,
+        anchor = "BOTTOMLEFT",
+        x = 0,
+        y = 0
+    },
 
-    changeBrewmasterAPLToSimC_20180121 = function( profile )
-        if state.class.file == "MONK" then
-            for dID, display in ipairs( profile.displays ) do
-                if display.Name == "Brewmaster Primary" or display.Name == "Brewmaster AOE" then
-                    local precombatName = "SimC Brewmaster: precombat"
-                    local defaultName   = "SimC Brewmaster: default"
+    delay = {
+        type = "TEXT",
 
-                    local precombat, default = 0, 0
-                    
-                    for i, list in ipairs( Hekili.DB.profile.actionLists ) do
-                        if list.Name == precombatName then precombat = i end
-                        if list.Name == defaultName   then default   = i end
-                    end
-                    
-                    if precombat > 0 then display.precombatAPL = precombat end
-                    if default > 0   then display.defaultAPL   = default end
-                end
-            end
-        end
-    end,
+        font = defaultFont,
+        size = 14,
+        style = "OUTLINE",
+
+        x = 0,
+        y = 0
+    },
+
+    bind = {
+        primary = true,
+        queue = true,
+
+        font = defaultFont,
+        size = 14,
+        style = "OUTLINE",
+
+        anchor = "TOPRIGHT",
+        x = 0,
+        y = 0
+    },
 }
-
-
-function ns.runOneTimeFixes()
-    
-    local profile = Hekili.DB.profile
-    if not profile then return end
-    
-    profile.runOnce = profile.runOnce or {}
-    
-    for k, v in pairs( oneTimeFixes ) do
-        if not profile.runOnce[ k ] then
-            profile.runOnce[k] = true
-            v( profile )
-        end
-    end
-    
-end
-
 
 
 local displayTemplate = {
@@ -497,8 +301,262 @@ local displayTemplate = {
     
     precombatAPL = 0,
     defaultAPL = 0
-    
 }
+
+
+-- Default Table
+function Hekili:GetDefaults()
+    local defaults = {
+        global = {
+            -- Styles are global.
+            styles = {
+                ['**'] = styleTemplate
+            },
+        },
+        char = {
+            -- Switch states are character-specific.
+            switches = {
+                cooldowns = false,
+                artifact = true,
+                interrupts = false,
+                potions = false,
+                ['*'] = false
+            },
+        },
+        profile = {
+            bfaVersion = 0,
+            enabled = true,
+          
+            switchType = 0,
+            mode = 3,
+
+            binds = {
+                mode = "ALT-SHIFT-N",
+                pause = "ALT-SHIFT-P",
+                snapshot = "ALT-SHIFT-["              
+            },
+
+            Clash = 0,
+            ['Audit Targets'] = 6,
+            ['Count Nameplate Targets'] = true,
+            ['Nameplate Detection Range'] = 8,
+            ['Count Targets by Damage'] = false,
+            
+            ['Notification Enabled'] = true,
+            ['Notification Font'] = 'Arial Narrow',
+            ['Notification X'] = 0,
+            ['Notification Y'] = 0,
+            ['Notification Width'] = 600,
+            ['Notification Height'] = 40,
+            ['Notification Font Size'] = 20,
+            
+            actionLists = {},
+
+            -- BfA incremental updates.
+            autoConversion = {},
+
+            -- Ability overrides, should autoconvert other values below.
+            abilities = {
+                ['**'] = {
+                    disabled = false,   -- was blacklist
+                    toggle = 'default', -- was toggle
+                    clash = 0,          -- was clash
+                }
+            },
+
+            displays = {
+                ['**'] = displayTemplate
+            },
+
+            notifications = {
+                enabled = true,
+                font = defaultFont,
+                size = 20,
+
+                width = 600,
+                height = 40,
+
+                x = 0,
+                y = 0,
+            },
+
+            specializations = {
+                ['**']  = {
+                    auditPeriod = 6,
+
+                    damageIn = false,
+                    damageOut = true,
+
+                    nameplates = true,
+                    nameplateRange = 8,
+
+                    pack = 0,
+
+                    primary = nil,
+                    secondary = nil,
+                    defensives = nil,
+                    notifications = nil,
+                }
+            },
+
+            switches = {
+                cooldowns = {
+                    name = "Cooldowns",
+                    bind = "ALT-SHIFT-R",
+                    default = true
+                },
+
+                artifact = {
+                    name = "Artifact",
+                    bind = "ALT-SHIFT-T",
+                    swOverride = "cooldowns",
+                    default = true
+                },
+
+                interrupts = {
+                    name = "Interrupts",
+                    bind = "ALT-SHIFT-I",
+                    default = true,
+                },
+
+                potions = {
+                    name = "Potions",
+                    default = true,
+                },
+
+                ['**'] = {
+                    name = "Unknown",
+                    bind = nil,
+                    blOverride = false,
+                    swOverride = nil,
+                    auto = false,
+                    default = false,
+                }
+            },
+
+            packs = {
+
+            },
+            
+            trinkets = {
+            },
+
+            
+            iconStore = {
+                hide = false,
+            },
+        },
+    }
+    
+    return defaults
+end
+
+
+local dbAutoConvert = {
+    convertAbilities = {
+        date = 20180311.1511,
+        func = function( db )
+            local p = db.profile
+            
+            for k, v in pairs( p.clashes ) do
+                p.abilities[ k ].clash = v
+            end
+            p.clashes = nil
+            
+            for k, v in pairs( p.toggles ) do
+                p.abilities[ k ].toggle = v
+            end
+            p.toggles = nil
+
+            for k, v in pairs( p.blacklist ) do
+                p.abilities[ k ].disabled = v
+            end
+            p.blacklist = nil
+        end
+    },
+
+    convertToggles = {
+        date = 20180311.1520,
+        func = function( db )
+            local p = db.profile
+            
+            p.binds.mode        = p.HEKILI_TOGGLE_MODE
+            p.binds.pause       = p.HEKILI_TOGGLE_PAUSE
+            p.binds.snapshot    = p.HEKILI_SNAPSHOT
+
+            p.HEKILI_TOGGLE_MODE    = nil
+            p.HEKILI_TOGGLE_PAUSE   = nil
+            p.HEKILI_SNAPSHOT       = nil
+
+            p.switches.cooldowns.bind  = p.HEKILI_TOGGLE_COOLDOWNS
+            p.switches.artifact.bind   = p.HEKILI_TOGGLE_ARTIFACT
+            p.switches.interrupts.bind = p.HEKILI_TOGGLE_INTERRUPTS
+            p.switches.potions.bind    = p.HEKILI_TOGGLE_POTIONS           
+
+            p.HEKILI_TOGGLE_COOLDOWNS   = nil
+            p.HEKILI_TOGGLE_ARTIFACT    = nil
+            p.HEKILI_TOGGLE_INTERRUPTS  = nil
+            p.HEKILI_TOGGLE_POTIONS     = nil
+
+            local nums = { "one", "two", "three", "four", "five" }
+
+            for i = 1, 5 do
+                local bind = p["HEKILI_TOGGLE_"..i]
+                local active = p["Toggle_"..i]
+                local key = p["Toggle "..i.." Name"]
+
+                if bind or key then
+                    key = key or nums[i]
+
+                    if not rawget( p.switches, key ) then                        
+                        p.switches[ key ].name = titleCase( key, true )
+                        p.switches[ key ].bind = bind
+                        db.char.switches[ key ] = active
+                    end
+                end
+
+                p["HEKILI_TOGGLE_"..i] = nil
+                p["Toggle_"..i] = nil
+                p["Toggle "..i.." Name"] = nil
+            end
+        end
+    },
+
+    convertDisplaysToStyles = {
+        date = 20180312.1100,
+        func = function( db )
+            local p = db.profile
+            local s = db.global.styles
+
+            for i = #p.displays, -1, 1 do
+                local display = p.displays[ i ]
+                local name = "Legacy: " .. display.Name
+
+                if rawget( s, name ) then
+                    -- Style already exists.
+                    p.displays[ i ] = nil
+                    dispaly = nil
+                else
+                    -- s[ name ]
+                end
+            end
+        end
+    }
+}
+
+
+function Hekili:AutoconvertConfig()
+    local db = self.DB
+
+    if not db then return end
+
+    for k, v in pairs( dbAutoConvert ) do
+        if not db.profile.autoConversion[ k ] or db.profile.autoConversion[ k ] < v.date then
+            v.func( db )
+            db.profile.autoConversion[ k ] = tonumber( date( "%Y%m%d.%H%M" ) )
+        end
+    end
+end
 
 
 -- DISPLAYS
@@ -875,7 +933,6 @@ end
 
 -- Add a display to the options UI.
 ns.newDisplayOption = function( key )
-    
     if not key or not Hekili.DB.profile.displays[ key ] then
         return nil
     end
@@ -1460,16 +1517,9 @@ ns.newDisplayOption = function( key )
                             local dispKey = info[2]
                             local dispIdx = tonumber( match( info[2], "^D(%d+)" ) )
                             
-                            --[[ for i, queue in ipairs( Hekili.DB.profile.displays[dispIdx].Queues ) do
-                            for k,v in pairs( queue ) do
-                                queue[k] = nil
-                            end
-                            table.remove( Hekili.DB.profile.displays[dispIdx].Queues, i)
-                        end ]]
-                            
                             -- Will need to be more elaborate later.
                             ns.UI.Displays[ dispIdx ]:Deactivate()
-
+                            
                             table.remove( Hekili.DB.profile.displays, dispIdx )
                             table.remove( ns.queue, dispIdx )
 
@@ -2833,159 +2883,6 @@ ns.newDisplayOption = function( key )
 end
 
 
--- DISPLAYS > HOOKS
--- Add a hook to a display.
---[[ 032517 - Deprecated.
-ns.newHook = function( display, name )
-    
-    if not name then
-        return nil
-    end
-    
-    if type(display) == string then
-        display = tonumber( match( display, "^D(%d+)") )
-    end
-    
-    for i,v in ipairs( Hekili.DB.profile.displays[ display ].Queues ) do
-        if v.Name == name then
-            ns.Error('NewHook() - tried to use an existing hook name.')
-            return nil
-        end
-    end
-    
-    local index = #Hekili.DB.profile.displays[display].Queues + 1
-    
-    Hekili.DB.profile.displays[ display ].Queues[ index ] = {
-        Name = name,
-        Release = Hekili.DB.profile.Release,
-        Enabled = false,
-        ['Action List'] = 0,
-        Script = '',
-    }
-    
-    return ( 'P' .. index ), index
-    
-end
-
-
--- Add a hook to the options UI.
--- display (number) The index of the display to which this entry is attached.
--- key (number) The index for this particular hook.
-ns.newHookOption = function( display, key )
-    
-    if not key or not Hekili.DB.profile.displays[display].Queues[ key ] then
-        return nil
-    end
-    
-    local pqOption = {
-        type = "group",
-        name = '|cFFFFD100' .. key .. '.|r ' .. Hekili.DB.profile.displays[ display ].Queues[ key ].Name,
-        order = 50 + key,
-        -- childGroups = "tab",
-        -- This number must be index + number of options in "Display Queues" section.
-        -- order = index + 2,
-        args = {
-            
-            Enabled = {
-                type = 'toggle',
-                name = 'Enabled',
-                order = 00,
-                width = 'double',
-            },
-            ['Move'] = {
-                type = 'select',
-                name = 'Position',
-                order = 01,
-                values = function(info)
-                    local dispKey, hookKey = info[2], info[3]
-                    local dispIdx, hookID = tonumber( dispKey:match("^D(%d+)") ), tonumber( hookKey:match("^P(%d+)") )
-                    local list = {}
-                    for i = 1, #Hekili.DB.profile.displays[ dispIdx ].Queues do
-                        list[i] = i
-                    end
-                    return list
-                end
-            },
-            ['Name'] = {
-                type = 'input',
-                name = 'Name',
-                order = 03,
-                validate = function(info, val)
-                    local key = tonumber(info[2])
-                    for i, hook in pairs( Hekili.DB.profile.displays[display].Queues ) do
-                        if i ~= key and hook.Name == val then
-                            return "That hook name is already in use."
-                        end
-                    end
-                    return true
-                end,
-                width = 'double'
-            },
-            ['Action List'] = {
-                type = 'select',
-                name = 'Action List',
-                order = 04,
-                values = function(info)
-                    local lists = {}
-                    
-                    lists[0] = 'None'
-                    for i, list in ipairs( Hekili.DB.profile.actionLists ) do
-                        if list.Specialization > 0 then
-                            lists[i] = '|T' .. select(4, GetSpecializationInfoByID( list.Specialization ) ) .. ':0|t ' .. list.Name
-                        else
-                            lists[i] = '|TInterface\\Addons\\Hekili\\Textures\\' .. select(2, UnitClass('player')) .. '.blp:0|t ' .. list.Name
-                        end
-                    end
-                    
-                    return lists
-                end,
-            },
-            Script = {
-                type = 'input',
-                name = 'Conditions',
-                dialogControl = "HekiliCustomEditor",
-                arg = function(info)
-                    local dispKey, hookKey = info[2], info[3]
-                    local dispIdx, hookID = tonumber( dispKey:match("^D(%d+)" ) ), tonumber( hookKey:match("^P(%d+)") )
-                    local prio = Hekili.DB.profile.displays[ dispIdx ].Queues[ hookID ]
-                    local results = {}
-                    
-                    ns.state.reset()
-                    ns.state.this_action = 'wait'
-                    ns.storeValues( results, ns.scripts.P[ dispIdx..':'..hookID ] )
-                    return results
-                end,
-                multiline = 6,
-                order = 12,
-                width = 'full'
-            },
-            Delete = {
-                type = "execute",
-                name = "Delete Hook",
-                confirm = true,
-                -- confirmText = '
-                order = 999,
-                func = function(info, ...)
-                    -- Key to Current Display (string)
-                    local dispKey = info[2]
-                    local dispIdx = tonumber( match( dispKey, "^D(%d+)" ) )
-                    local queueKey = info[3]
-                    local queueIdx = tonumber( match( queueKey, "^P(%d+)" ) )
-                    
-                    -- Will need to be more elaborate later.
-                    table.remove( Hekili.DB.profile.displays[dispIdx].Queues, queueIdx )
-                    ns.refreshOptions()
-                    ns.loadScripts()
-                end
-            },
-        }
-    }
-    
-    return pqOption
-    
-end ]]
-
-
 -- ACTION LISTS
 -- Add an action list to the profile (to be stored in SavedVariables).
 ns.newActionList = function( name )
@@ -3331,7 +3228,7 @@ ns.newAction = function( aList, name )
     
     Hekili.DB.profile.actionLists[ aList ].Actions[ index ] = {
         Name = name,
-        Release = Hekili.DB.profile.Version + ( Hekili.DB.profile.Release / 100 ),
+        Release = 1,
         Enabled = false,
         Ability = nil,
         Caption = nil,
@@ -3367,16 +3264,13 @@ local function getActionEntry( info )
 end
 
 
---- NewActionOption()
+-- NewActionOption()
 -- Add a new action to the action list options.
 -- aList (number) index of the action list.
 -- index (number) index of the action in the action list.
-ns.newActionOption = function( aList, index )
-    
-    if not index then return nil end
-    
-    local entry = Hekili.DB.profile.actionLists[ aList ].Actions[ index ]
-    
+ns.newActionOption = function( aList, index )    
+    if not index then return nil end   
+    local entry = Hekili.DB.profile.actionLists[ aList ].Actions[ index ]    
     if not entry then return nil end
     
     local actOption = {
@@ -3974,7 +3868,7 @@ ns.ClassSettings = function ()
     
     local option = {
         type = 'group',
-        name = "Class/Specialization",
+        name = "Specializations",
         order = 20,
         args = {},
         childGroups = "select",
@@ -4038,7 +3932,7 @@ ns.AbilitySettings = function ()
     
     local option = {
         type = 'group',
-        name = "Abilities and Items",
+        name = "Abilities",
         order = 21,
         childGroups = 'select',
         args = {
@@ -4187,7 +4081,10 @@ ns.AbilitySettings = function ()
                             local toggle = option.args[ v ].args[ i .. ':' .. a ] or {}
 
                             toggle.type = "toggle"
-                            toggle.name = "Disable " .. ( ability.item and ability.link or k ) .. " (#|cFFFFD100" .. a .. "|r) in |cFFFFD100" .. ( list.Name or "Unnamed List" ) .. "|r"
+                            toggle.name = function ()
+                                local ability = class.abilities[ action.Ability ]                               
+                                return "Disable " .. ( ability.item and ability.link or k ) .. " (#|cFFFFD100" .. a .. "|r) in |cFFFFD100" .. ( list.Name or "Unnamed List" ) .. "|r"
+                            end
                             toggle.desc = "This ability is used in entry #" .. a .. " of the |cFFFFD100" .. list.Name .. "|r action list."
                             toggle.order = entries
                             toggle.width = "full"
@@ -4762,7 +4659,7 @@ end
 local getColoredName = function( tab )
     if not tab then return '(none)'
     elseif tab.Default then return '|cFF00C0FF' .. tab.Name .. '|r'
-else return '|cFFFFC000' .. tab.Name .. '|r' end
+    else return '|cFFFFC000' .. tab.Name .. '|r' end
 end
 
 
@@ -4817,10 +4714,876 @@ function Hekili:NewSetOption( info, value )
     local sValue = tostring( value )
     
     if option == 'qsShowTypeGroup' then config[option] = value
-else config[option] = nValue end
+    else config[option] = nValue end
     
     return
 end
+
+
+-- Workspace for Switches / Toggles.
+do
+    local ws = {
+        switch = 'cooldowns',
+        switchSelect = {},
+        switchOverride = {},
+        actionDB = {},
+        linkable = {},
+        link = 'aaaaa',
+        imageCoords = { 0.15, 0.85, 0.15, 0.85 },
+
+        
+        -- New Switches...
+        newKey = nil,
+        newName = nil,
+    }
+
+    local function NewHidden()
+        return ws.switch ~= 'zzzzz'
+    end
+
+    local function EditHidden()
+        ws.link = 'aaaaa'
+        return ws.switch == 'zzzzz' or ws.switch == 'aaaaa'
+    end
+
+    local function PopulateSelect()
+        local t = ws.switchSelect
+
+        table_wipe( t )
+        for k,v in pairs( Hekili.DB.profile.switches ) do
+            if not v.default then
+                t[ k ] = v.name .. " (|cFFFFD100" .. k .. "|r)"
+            else
+                t[ k ] = v.name
+            end
+        end
+        -- t.aaaaa = "|TInterface\\ICONS\\INV_DARKMOON_EYE:0|t  Switch Overview"
+        t.zzzzz = "|TInterface\\PaperDollInfoFrame\\Character-Plus:0|t  Create a New Switch|r"
+
+        return t
+    end
+
+    local function PopulateOverride()
+        local t = ws.switchOverride
+
+        table_wipe( t )
+        for k,v in pairs( Hekili.DB.profile.switches ) do
+            if k ~= ws.switch then t[ k ] = v.name end
+        end    
+        t.zzzzzNone = "(none)"
+
+        return t
+    end
+
+    local function SwitchTooltip( switch )
+        local p = Hekili.DB.profile
+
+        local output = "The following abilities are linked to this switch:\n\r\n"
+
+        local found = false
+        local pool = {}
+
+        for key, data in pairs( class.abilities ) do
+            if not pool[ data.name ] then
+                if data.id > -100 then
+                    local t = data.toggle
+
+                    if p.abilities[ key ].toggle ~= 'default' then
+                        t = p.abilities[ key ].toggle
+                    end
+
+                    if t == switch then                                                       
+                        pool[ data.name ] = data.id > 0 and GetSpellLink( data.id ) or data.name
+                        found = true
+                    end
+                elseif data.id < -99 then
+                    local t = data.toggle
+
+                    if p.abilities[ key ].toggle ~= 'default' then
+                        t = p.abilities[ key ].toggle
+                    end
+
+                    if t == switch then
+                        local name = data.name or GetItemInfo( data.item )
+                        local texture = data.texture or select( 10, GetItemInfo( data.item ) )
+                        
+                        if name and texture then
+                            pool[ data.name ] = data.link
+                            found = true
+                        end
+                    end
+                end
+            end
+        end
+
+        for key, link in orderedPairs( pool ) do
+            output = output .. link .. "\n"
+        end
+
+        if not found then 
+            output = "No abilities are directly linked to this switch.  However, |cFFFFD100toggle." .. switch .. "|r may be used in your action lists to check if this switch is active."
+        else
+            output = output .. "\nIf unchecked, none of these abilities will be recommended by the addon."
+        end
+
+        return output
+    end
+
+    local function LinkActions( info )
+        local p = Hekili.DB.profile
+        table_wipe( ws.linkable )
+
+        for k,v in pairs( class.abilities ) do
+            local texture, name, toggle
+            if v.id < 99 and v.item then
+                texture = v.texture or select( 10, GetItemInfo( v.item ) )
+                name = v.name or GetItemInfo( v.item )
+            elseif v.id > 0 then
+                texture = v.texture or GetSpellTexture( v.id )
+                name = v.name or GetSpellInfo( v.id )
+            end
+
+            toggle = v.toggle
+            if p.abilities[ v.key ].toggle ~= 'default' then toggle = p.abilities[ v.key ].toggle end
+
+            if texture and name then
+                ws.linkable[ v.key ] = "|T" .. texture .. ":0|t " .. name
+                if toggle and toggle ~= 'none' then ws.linkable[ v.key ] = ws.linkable[ v.key ] .. " |cFFFFD100(" .. toggle .. ")|r" end
+            end
+        end
+
+        ws.linkable.aaaaa = "Select an Action"
+
+        return ws.linkable
+    end
+
+
+    function Hekili:GetAbilitySwitch( id )
+        if class.abilities[ id ] then
+            local a = class.abilities[ id ].key
+            local s = class.abilities[ id ].toggle
+            local t = self.DB.profile.abilities[ a ].toggle
+
+            if t == 'none' then return nil end
+            
+            if t == 'default' then 
+                t = s
+            end
+
+            return t
+        end
+
+        return nil
+    end
+
+
+    function Hekili:GenerateSwitchOptions()
+        local options = {
+            type = "group",
+            name = "Switches",
+            desc = "Configure special filters and keybindings.",
+            order = 15,
+            childGroups = "tab",
+            args = {
+                builtIns = {
+                    type = "group",
+                    name = "Defaults",
+                    order = 1,
+                    get = function( info )
+                        local db = Hekili.DB
+                        local s, key = info[ #info-1 ], info[ #info ]
+
+                        if key == 'active' then
+                            return db.char.switches[ s ]
+                        end
+
+                        return db.profile.switches[ s ][ key ]
+                    end,
+                    set = function( info, val )
+                        local db = Hekili.DB
+                        local s, key = info [ #info-1 ], info[ #info ]
+
+                        if key == 'active' then
+                            db.char.switches[ s ] = val
+                            return
+                        end
+
+                        db.profile.switches[ s ][ key ] = val
+                        if key == 'bind' then Hekili:OverrideBinds() end
+                    end,
+                    args = {
+                        engine = {
+                            type = "header",
+                            name = "Core Features",
+                            order = 1,
+                        },
+                        pause = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 4,
+                            get = function( info )
+                                local k = info[ #info ]
+                                local p = Hekili.DB.profile
+
+                                if k == 'bind' then return p.binds.pause end
+                                
+                                return Hekili.Pause
+                            end,
+                            set = function( info, val )
+                                local k = info[ #info ]
+                                local p = Hekili.DB.profile
+
+                                if k == 'bind' then
+                                    p.binds.pause = val
+                                    if GetBindingKey( "HEKILI_TOGGLE_PAUSE" ) then
+                                        SetBinding( GetBindingKey( "HEKILI_TOGGLE_PAUSE" ) )
+                                    end
+                                    SetBinding( val, "HEKILI_TOGGLE_PAUSE" )
+                                    SaveBindings( GetCurrentBindingSet() )
+                                    return
+                                end
+
+                                Hekili:TogglePause()
+                            end,
+                            args = {
+                                bind = {
+                                    type = "keybinding",
+                                    name = "Pause",
+                                    desc = "Pausing the addon allows you to see why the displayed abilities were recommended by placing the " ..
+                                        "mouse over the ability's icon.  It will also generate a snapshot which can be sent to the author for " ..
+                                        "testing purposes.  See the Issue Reporting section for more details.",
+                                    order = 1,
+                                },
+                                paused = {
+                                    type = "toggle",
+                                    name = "Paused",
+                                    desc = "If checked, you can view the reason for the addon's recommendations by placing the mouse over the " ..
+                                        "displayed icon.",
+                                    order = 2,
+                                }
+                            }
+                        },
+                        snapshot = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 3,
+                            args = {
+                                bind = {
+                                    type = "keybinding",
+                                    name = "Snapshot",
+                                    desc = "When this button is pressed, the addon will create a log that explains why it selected the currently " ..
+                                        "recommended abilities.  This can be sent to the author for testing and bug reporting purposes.  See the " ..
+                                        "Issue Reporting tab for more information.",
+                                    get = function()
+                                        return Hekili.DB.profile.binds.snapshot
+                                    end,
+                                    set = function( info, val )
+                                        Hekili.DB.profile.binds.snapshot = val
+                                        if GetBindingKey( "HEKILI_SNAPSHOT" ) then
+                                            SetBinding( GetBindingKey( "HEKILI_SNAPSHOT" ) )
+                                        end       
+                                        SetBinding( val, "HEKILI_SNAPSHOT" )
+                                        SaveBindings( GetCurrentBindingSet() )
+                                    end,
+                                    order = 1,
+                                }
+                            }
+                        },
+                        mode = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 2,
+                            get = function( info )
+                                local key = info[ #info ]
+                                local p = Hekili.DB.profile
+                             
+                                if key == 'bind' then return p.binds.mode end
+
+                                return p[ key ]
+                            end,
+                            set = function( info, val )
+                                local key = info[ #info ]
+                                local p = Hekili.DB.profile
+
+                                if key == 'switchType' then
+                                    if val == 0 and ( p.mode == 1 or p.mode == 2 ) then
+                                        p.mode = 0
+                                    
+                                    elseif val == 1 and ( p.mode == 1 or p.mode == 3 ) then
+                                        p.mode = 0
+                                    
+                                    end
+                                end
+
+                                p[ key ] = val
+                            end,
+                            args = {
+                                bind = {
+                                    type = "keybinding",
+                                    name = "Display Mode",
+                                    get = function()
+                                        return Hekili.DB.profile.binds.mode
+                                    end,
+                                    set = function( info, val )
+                                        Hekili.DB.profile.binds.mode = val
+        
+                                        if GetBindingKey( "HEKILI_TOGGLE_MODE" ) then
+                                            SetBinding( GetBindingKey( "HEKILI_TOGGLE_MODE" ) )
+                                        end       
+                                        SetBinding( val, "HEKILI_TOGGLE_MODE" )
+                                        SaveBindings( GetCurrentBindingSet() )
+                                    end,
+                                    desc = "The Display Mode controls the addon's default Primary and Secondary displays.\n\n" ..
+                                        "In Single Display mode, the addon will show only the Primary display and recommendations are made based on " ..
+                                        "the number of enemy targets that are detected.\n\n" ..
+                                        "In Dual Display mode, the addon will show the Primary and Seconday displays.  The Primary display will show " ..
+                                        "recommendations for single-target and the Secondary display will make recommendations assuming there are " ..
+                                        "three or more targets.",
+                                    order = 1,
+                                },
+                                switchType = {
+                                    type = 'select',
+                                    name = 'Switch Type',
+                                    desc = "|cFFFFD100Single / Auto|r\nPressing the Mode Switch keybind will switch between strict single target (1 enemy) vs. using auto-detection to count active enemies.\n\n" ..
+                                    "|cFFFFD100Single / AOE|r\nPressing this key will switch between single-target and AOE. AOE is defined as a minimum of 3 targets for default displays.\n",
+                                    values = {
+                                        [0] = 'Single / Auto',
+                                        [1] = 'Single / AOE',
+                                    },
+                                    order = 2,
+                                },
+                                mode = {
+                                    type = 'select',
+                                    name = 'Current Mode',
+                                    desc = "Based upon the Switch Type, this setting can switch between single-target, AOE, or auto-detection of enemies.",
+                                    values = function(info, val)
+                                        local st = Hekili.DB.profile.switchType
+
+                                        if st == 2 then
+                                            return { [0] = 'Single', [2] = 'Multi' }
+                                        elseif st == 1 then
+                                            return { [0] = 'Single', [2] = 'Multi' }
+                                        elseif st == 0 then
+                                            return { [0] = 'Single', [3] = 'Auto' }
+                                        end
+                                    end,
+                                    order = 22
+                                },
+                            }
+                        },
+                        overview = {
+                            type = "header",
+                            name = "Switches",
+                            order = 10
+                        },
+                        cooldowns = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 11,
+                            args = {
+                                bind = {
+                                    name = "Cooldowns",
+                                    type = "keybinding",
+                                    order = 1,
+                                },
+                                active = {
+                                    name = "Show Cooldowns",
+                                    type = "toggle",
+                                    desc = function () return SwitchTooltip( "cooldowns" ) end,
+                                    order = 2,
+                                },
+                                blOverride = {
+                                    name = "Bloodlust Override",
+                                    type = "toggle",
+                                    order = 3,
+                                },
+                            }
+                        },
+                        artifact = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 12,
+                            args = {
+                                bind = {
+                                    name = "Artifact Ability",
+                                    type = "keybinding",
+                                    order = 1,
+                                },
+                                active = {
+                                    name = "Show Artifact Ability",
+                                    type = "toggle",
+                                    desc = function () return SwitchTooltip( "artifact" ) end,
+                                    order = 2,
+                                },
+                                blOverride = {
+                                    name = "Cooldown Override",
+                                    type = "toggle",
+                                    order = 3,
+                                }
+                            }
+                        },
+                        potions = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 13,
+                            args = {
+                                bind = {
+                                    name = "Potions",
+                                    type = "keybinding",
+                                    order = 1,
+                                },
+                                active = {
+                                    name = "Show Potions",
+                                    type = "toggle",
+                                    desc = function () return SwitchTooltip( "potions" ) end,
+                                    order = 2,
+                                },
+                            }
+                        },
+                        interrupts = {
+                            type = "group",
+                            inline = true,
+                            name = "",
+                            order = 14,
+                            args = {
+                                bind = {
+                                    name = "Interrupts",
+                                    type = "keybinding",
+                                    order = 1,
+                                },
+                                active = {
+                                    name = "Show Interrupts",
+                                    type = "toggle",
+                                    desc = function () return SwitchTooltip( "interrupts" ) end,
+                                    order = 2,
+                                },
+                            }
+                        },
+                    },               
+                },
+                advanced = {
+                    type = "group",
+                    name = "Advanced",
+                    order = 2,
+                    args = {
+                        switch = {
+                            type = "select",
+                            name = "Switch",
+                            values = function()
+                                return PopulateSelect()
+                            end,
+                            get = function () return ws.switch end,
+                            set = function (info, val) ws.switch = val end,
+                            width = "full",
+                            order = 5,
+                        },
+                        new = {
+                            name = "",
+                            type = "group",
+                            inline = true,
+                            order = 7,
+                            get = function( info )
+                                local key = info[ #info ]
+                                return ws[ key ]
+                            end,
+                            set = function( info, val )
+                                local key = info[ #info ]
+        
+                                if type( val ) == 'string' then val = val:trim() end
+                                ws[ key ] = val
+                            end,
+                            hidden = NewHidden,
+                            args = {
+                                head = {
+                                    type = "header",
+                                    name = "New Switch",
+                                    order = 1,
+                                },
+                                newKey = {
+                                    type = 'input',
+                                    name = "Switch Identifier",
+                                    desc = "Specify a unique identifier for this switch.  The switch identifier can be used in your custom " ..
+                                        "action packs as |cFFFFD100toggle.identifier|r (i.e., |cFFFFD100toggle.cooldowns|r).\n",
+                                    width = "full",
+                                    validate = function( info, val )
+                                        if ws.switchSelect[ val ] then
+                                            return "That switch already exists.  Try a new, unique identifier."
+                                        elseif val:find( "[^a-z0-9_]" ) then
+                                            return "Only lowercase letters, numbers, and underscores (_) are allowed."
+                                        elseif val:len() < 3 or val:len() > 40 then
+                                            return "Identifiers must be between 3 and 40 characters in length."
+                                        elseif val == "aaaaa" or val == "zzzzz" then
+                                            return "That is a restricted keyword.  Use a better, more descriptive identifier."
+                                        end
+                                        return true
+                                    end,
+                                    usage = "Only lowercase letters, numbers, and underscores (_) are allowed.",
+                                    order = 2,
+                                },
+                                newName = {
+                                    type = 'input',
+                                    name = "Switch Name",
+                                    desc = "Specify a unique name for this switch.  The name should be descriptive and may show up when " ..
+                                        "toggles are adjusted.",
+                                    width = "full",
+                                    validate = function( info, val )
+                                        if val:len() < 3 or val:len() > 40 then
+                                            return "Names must be between 3 and 40 characters in length."
+                                        end
+                                        return true
+                                    end,
+                                    order = 3,
+                                },
+                                create = {
+                                    type = 'execute',
+                                    name = "Create",
+                                    func = function( info, val )
+                                        local s = Hekili.DB.profile.switches
+                                        local key = ws.newKey
+
+                                        if not rawget( s, key ) then
+                                            s[ key ].name = ws.newName
+                                        end
+        
+                                        ws.switch = key
+                                        ws.newKey = nil
+                                        ws.newName = nil
+                                    end,
+                                    disabled = function()
+                                        return not ( ws.newKey and ws.newName )
+                                    end,
+                                    order = 4
+                                }
+                            }
+                        },
+                        existing = {
+                            name = function()
+                                -- Use this to populate the linked actions.
+                                local p = Hekili.DB.profile
+                                local db = ws.actionDB
+                                table_wipe( db )
+        
+                                for key, data in pairs( class.abilities ) do
+                                    if not db[ data.key ] then
+                                        if data.id > -100 then
+                                            local t = data.toggle
+                        
+                                            if p.abilities[ data.key ].toggle ~= 'default' then
+                                                t = p.abilities[ data.key ].toggle
+                                            end
+                        
+                                            if t == ws.switch then
+                                                db[ data.key ] = {
+                                                    type = "execute",
+                                                    name = data.id > 0 and GetSpellLink( data.id ) or data.name,
+                                                    desc = data.id > 0 and GetSpellDescription( data.id ),
+                                                    image = data.texture or GetSpellTexture( data.id ),
+                                                    imageCoords = ws.imageCoords,
+                                                    confirm = true,
+                                                    confirmText = "Unlink " .. data.name .. " from this switch?",
+                                                    func = function ()
+                                                        p.abilities[ data.key ].toggle = "none"
+                                                    end,
+                                                    fontSize = "large",
+                                                }
+                                            end
+                                        elseif data.id < -99 then
+                                            local t = data.toggle
+                        
+                                            if p.abilities[ data.key ].toggle ~= 'default' then
+                                                t = p.abilities[ data.key ].toggle
+                                            end
+                        
+                                            if t == ws.switch then
+                                                db[ data.key ] = {
+                                                    type = "execute",
+                                                    name = data.link or select( 2, GetItemInfo( data.item ) ),
+                                                    desc = data.item and GetSpellDescription( select( 3, GetItemSpell( data.item ) ) ),
+                                                    image = data.texture or select( 10, GetItemInfo( data.item ) ),
+                                                    imageCoords = ws.imageCoords,
+                                                    confirm = true,
+                                                    confirmText = "Unlink " .. data.name .. " from this switch?",
+                                                    func = function ()
+                                                        p.abilities[ data.key ].toggle = "none"
+                                                    end,
+                                                    fontSize = "large",
+                                                }
+                                            end
+                                        end
+                                    end
+                                end
+        
+                                local i = 20
+                                
+                                local plugins = Hekili.Options.args.switches.args.advanced.args.existing.plugins
+                                plugins.actions = plugins.actions or {}
+                                table_wipe( plugins.actions )
+        
+                                for key, option in orderedPairs( db ) do
+                                    plugins.actions[ key ] = option
+                                    option.order = i
+                                    i = i + 1
+                                end
+        
+                                return ""
+                            end,
+                            type = "group",
+                            inline = true,
+                            order = 8,
+                            get = function( info )
+                                local key = info[ #info ]
+                                local switch = Hekili.DB.profile.switches[ ws.switch ]
+
+                                if key == "active" then
+                                    return Hekili.DB.char.switches[ ws.switch ]
+                                elseif key == "swOverride" and switch[ key ] == nil then
+                                    return "zzzzzNone"                                
+                                end
+                                
+                                return switch[ key ]
+                            end,
+                            set = function( info, val )
+                                local key = info[ #info ]
+                                local switch = Hekili.DB.profile.switches[ ws.switch ]
+        
+                                if type( val ) == 'string' then val = val:trim() end
+        
+                                if key == "active" then
+                                    Hekili.DB.char.switches[ ws.switch ] = val
+                                    return
+                                elseif key == "swOverride" and switch[ key ] == "zzzzzNone" then
+                                    switch[ key ] = nil
+                                    return
+                                
+                                end
+        
+                                switch[ key ] = val
+        
+                                if key == 'bind' then Hekili:OverrideBinds() end
+                            end,
+                            hidden = EditHidden,
+                            args = {
+                                header = {
+                                    type = "header",
+                                    name = function ()
+                                        local switch = Hekili.DB.profile.switches[ ws.switch ]
+                                        return switch.name
+                                    end,
+                                    order = 1,                                
+                                },
+                                desc = {
+                                    type = "description",
+                                    name = function ()
+                                        local switch = Hekili.DB.profile.switches[ ws.switch ]
+                                        return "This switch can be referenced in your Action Lists as |cFFFFD100toggle." .. ws.switch .. "|r.\n" ..
+                                            "You can also specify which abilities are connected to this switch here, to be handled automatically " ..
+                                            "by the addon.\n"
+                                    end,
+                                    fontSize = "medium",
+                                    order = 2,
+                                    width = "full",
+                                },
+                                bind = {
+                                    name = "Keybinding",
+                                    type = "keybinding",
+                                    order = 3,
+                                },                            
+                                active = {
+                                    name = function ()
+                                        local s = Hekili.DB.profile.switches[ ws.switch ]
+                                        return s.name .. " Enabled"
+                                    end,
+                                    type = "toggle",
+                                    desc = function ()
+                                        return "If checked, this switch will be active and any linked abilities may be recommended.\n\n" ..
+                                            "Additionally, |cFFFFD100toggle." .. ws.switch .. "|r will be |cFF00FF00true|r in any of your action lists.\n\n" ..
+                                            "If a keybinding is set, you can toggle this switch using the assigned keybinding."
+                                    end,
+                                    order = 4,
+                                },
+                                --[[ name = {
+                                    name = "Name",
+                                    type = "input",
+                                    width = "full",
+                                    validate = function( info, val )
+                                        if val:len() < 3 or val:len() > 40 then
+                                            return "Names must be between 3 and 40 characters in length."
+                                        end
+                                        return true
+                                    end,
+                                    order = 5.1,
+                                }, ]]
+                                overHead = {
+                                    type = 'header',
+                                    name = "Overrides",
+                                    order = 5
+                                },
+                                swOverride = {
+                                    name = "Switch Override",
+                                    type = "select",
+                                    desc = function ()
+                                        return "If specified, this switch will be active and any linked abilities may be recommended when the specified Switch is enabled.\n" ..
+                                            "Additionally, |cFFFFD100toggle." .. ws.switch .. "|r will be |cFF00FF00true|r in any of your action lists."
+                                    end,
+                                    values = function ()
+                                        return PopulateOverride()
+                                    end,
+                                    width = "full",
+                                    order = 6,
+                                },
+                                blOverride = {
+                                    name = "Active During Bloodlust",
+                                    type = "toggle",
+                                    desc = function ()
+                                        return "If checked, this switch will be active and any linked abilities may be recommended when a Bloodlust effect is active.\n\n" ..
+                                            "Additionally, |cFFFFD100toggle." .. ws.switch .. "|r will be |cFF00FF00true|r in any of your action lists."
+                                    end,
+                                    width = "full",
+                                    order = 7,
+                                },
+                                auto = {
+                                    name = "Auto-Enable via Linked Action",
+                                    type = "toggle",
+                                    desc = "If checked, this switch will be automatically reactivated when you use any of its linked abilities.",
+                                    width = "full",
+                                    order = 8,
+                                },
+                                actionHead = {
+                                    name = "Actions",
+                                    type = "header",
+                                    order = 10,                                
+                                },
+                                actionLink = {
+                                    type = "select",
+                                    name = "Link an Action",
+                                    desc = "Select an action to link it to this switch.",
+                                    width = "full",
+                                    get = function() return ws.link end,
+                                    set = function( info, val )
+                                        Hekili.DB.profile.abilities[ val ].toggle = ws.switch
+                                    end,
+                                    values = function() return LinkActions() end,
+                                    order = 15
+                                },
+                                actionDesc = {
+                                    type = "description",
+                                    name = "The following actions (abilities, spells, items) are linked to this switch.  If this switch is not active, " ..
+                                        "then these actions will not be recommended by the addon.  You can add/remove actions to/from this switch as well.",
+                                    fontSize = "medium",
+                                    width = "full",
+                                    order = 16,
+                                },
+                                deleteHead = {
+                                    type = "header",
+                                    name = "Delete",
+                                    order = 995,
+                                    hidden = function()
+                                        if ws.switch == 'zzzzz' then return true end
+                                        return Hekili.DB.profile.switches[ ws.switch ].default
+                                    end,
+                                },
+                                delete = {
+                                    type = "execute",
+                                    name = "Delete Switch",
+                                    confirm = true,
+                                    confirmText = "Do you really want to delete this switch?  This will unlink all abilities.",
+                                    func = function()
+                                        local p = Hekili.DB.profile
+                                        local s = p.switches[ ws.switch ]
+
+                                        for k, v in pairs( p.abilities ) do
+                                            if v.toggle == ws.switch then v.toggle = "default" end
+                                        end
+
+                                        p.switches[ ws.switch ] = nil
+                                        Hekili:OverrideBinds()
+
+                                        ws.switch = "zzzzz"
+                                    end,
+                                    hidden = function()
+                                        if ws.switch == 'zzzzz' then return true end
+                                        return Hekili.DB.profile.switches[ ws.switch ].default
+                                    end,
+                                    order = 996,
+                                }
+                            },
+                            plugins = {}
+                        }
+                    }
+                },
+            }
+        }
+
+        return options
+    end
+end
+
+
+-- Class Settings.
+do
+
+end
+
+
+local function GenerateCharacterData()
+    local s = state
+    local spec = s.spec.key
+
+    local talents
+    for k, v in orderedPairs( s.talent ) do
+        if v.enabled then
+            if talents then talents = format( "%s\n    %s", talents, k )
+            else talents = k end
+        end
+    end
+
+    local traits
+    for k, v in orderedPairs( s.artifact ) do
+        if v.rank > 0 then
+            if traits then traits = format( "%s\n    %s=%d", traits, k, v.rank )
+            else traits = format( "%s=%d", k, v.rank ) end
+        end
+    end
+
+    local sets
+    for k, v in orderedPairs( class.gearsets ) do
+        if s.set_bonus[ k ] > 0 then
+            if sets then sets = format( "%s\n    %s=%d", sets, k, s.set_bonus[k] )
+            else sets = format( "%s=%d", k, s.set_bonus[k] ) end
+        end
+    end
+
+    local gear
+    for k, v in pairs( state.set_bonus ) do
+        if type(k) == 'string' and v > 0 then
+            if gear then gear = format( "%s\n    %s=%d", gear, k, v )
+            else gear = format( "    %s=%d", k, v ) end
+        end
+    end
+
+    return format( "build: %s\n" ..
+        "level: %d\n" ..
+        "class: %s\n" ..
+        "spec: %s\n\n" ..
+        "talents: %s\n\n" ..
+        "traits: %s\n\n" ..
+        "sets/legendaries/artifacts: %s\n\n" ..
+        "gear: %s",
+        Hekili.Version or "no info",
+        UnitLevel( 'player' ) or 0,
+        class.file or "NONE",
+        spec or "none",
+        talents or "none",
+        traits or "none",
+        sets or "none",
+        gear or "none" )
+end    
 
 
 function Hekili:GetOptions()
@@ -4832,102 +5595,26 @@ function Hekili:GetOptions()
         set = 'SetOption',
         childGroups = "tree",
         args = {
-
             general = {
                 type = "group",
-                name = "General",
-                order = 15,
+                name = "Welcome",
+                order = 10,
                 args = {
-                    Enabled = {
+                    enabled = {
                         type = "toggle",
                         name = "Enabled",
                         desc = "Enables or disables the addon.",
-                        order = 1
+                        order = 1,
+                        width = "full"
                     },
-                    Locked = {
+                    minimap = {
                         type = "toggle",
-                        name = "Locked",
-                        desc = "Locks or unlocks all displays for movement, except when the options window is open.",
-                        order = 2
+                        name = "Minimap Icon",
+                        desc = "If checked, the minimap icon will be shown.",
+                        order = 2,
+                        width = "full"
                     },
-                    MinimapIcon = {
-                        type = "toggle",
-                        name = "Hide Minimap Icon",
-                        desc = "If checked, the minimap icon will be hidden.",
-                        order = 3
-                    },
-                    ['Counter'] = {
-                        type = "group",
-                        name = "Target Count",
-                        inline = true,
-                        order = 6,
-                        args = {
-                            ['Delay Description'] = {
-                                type = 'description',
-                                name = "In order to make accurate recommendations based on the number of enemies you are fighting, this addon uses two processes to count targets.  " ..
-                                    "The first method is to |cFFFFD100Count Nameplates|r and check whether those enemies are within your |cFFFFD100Nameplate Detection Range|r (typically 8 yards for melee).  " ..
-                                    "The second method is to |cFFFFD100Track Damage|r and count enemies you've damaged within the |cFFFFD100Grace Period|r.  Both methods have strengths and disadvantages.\n",
-                                order = 0,
-                                fontSize = "medium",
-                                width = 'full'
-                            },
-                            ['Count Nameplate Targets'] = {
-                                type = 'toggle',
-                                name = "Count Nameplates",
-                                desc = "If checked, the addon will check to see how many hostile nameplates are within the specified range and count them as enemies.\n\n" ..
-                                "If enemy nameplates are not enabled, the addon will fallback to damage-based detection regardless of these settings.\n\n" ..
-                                "This feature is not used by ranged specializations.",
-                                order = 1,
-                            },
-                            ['Nameplate Detection Range'] = {
-                                type = 'range',
-                                name = 'Nameplate Detection Range',
-                                desc = "When |cFFFFD100Count Nameplate Targets|r is checked, the addon will count enemy nameplates within this many yards as active enemies.\n\n" ..
-                                "This value will 'snap' to valid enemy ranges that can be used for target detection.",
-                                min = 5,
-                                max = 100,
-                                step = 1,
-                                set = function( info, val )
-                                    -- local values = { [5] = 5, [6] = 6, [8] = 8, [10] = 10, [15] = 15, [20] = 20, [25] = 25, [30] = 30, [35] = 35, [40] = 40, [45] = 45, [50] = 50, [60] = 60, [70] = 70, [80] = 80, [100] = 100 }
-                                    local values = { 5, 6, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 100 }
-                                    
-                                    local closest, difference = 0, 100
-                                    
-                                    for _, value in ipairs( values ) do
-                                        local diff = abs( val - value )
-                                        if diff < difference then
-                                            closest = value
-                                            difference = diff
-                                        end
-                                        
-                                        if closest > val then break end
-                                    end
-                                    
-                                    Hekili.DB.profile['Nameplate Detection Range'] = closest
-                                end,
-                                order = 2,
-                                width = 'double',
-                            },
-                            ['Count Targets by Damage'] = {
-                                type = 'toggle',
-                                name = 'Track Damage',
-                                desc = "If checked, the addon will track which units you have recently attacked or have recently attacked you and count them as enemies.\n\n" ..
-                                "If nameplate target detection is turned off, this feature will be used regardless of this setting.\n\n" ..
-                                "For ranged specializations, this feature is always active.",
-                                order = 3,
-                            },
-                            ['Audit Targets'] = {
-                                type = 'range',
-                                name = "Grace Period",
-                                min = 3,
-                                max = 20,
-                                step = 1,
-                                width = 'double',
-                                order = 4,
-                            },
-                        }
-                    },
-                    ['Description'] = {
+                    thankYou = {
                         type = 'description',
                         name = function ()
                             local output = "\n|cFF00CCFFTHANK YOU TO ALL PATRONS SUPPORTING THIS ADDON'S DEVELOPMENT!|r\n\n"
@@ -4945,53 +5632,112 @@ function Hekili:GetOptions()
                             output = output .. "\n\nPlease see the |cFFFFD100Issue Reporting|r tab for information about reporting bugs.\n"
                             return output
                         end,
+                        image = "INTERFACE\\ADDONS\\HEKILI\\TEXTURES\\LOGO-ORANGE",
+                        imageWidth = 150,
+                        imageHeight = 150,
                         fontSize = "medium",
                         width = "full",
                         order = 4
                     },
-                    --[[ ['Clash'] = {
-                        type = "group",
-                        name = "Cooldown Clash",
-                        inline = true,
-                        order = 6,
-                        args = {
-                            ['Clash Description'] = {
-                                type = 'description',
-                                name = "When recommending abilities, the addon prioritizes the action that is available soonest and with passing criteria. Sometimes, a lower priority action will be recommended " ..
-                                    "over a higher priority action because the lower priority action will be available slightly sooner.  By setting a Cooldown Clash value greater than 0, the addon will recommend a " ..
-                                    "lower priority action only if it is available at least this much sooner than a higher priority ability.  This setting applies to all abilities; individual abilities can be " ..
-                                    "configured on the |cFFFFD100Abilities and Items|r tab.",
-                                order = 0
-                            },
-                            ['Clash'] = {
-                                type = 'range',
-                                name = "Clash",
-                                min = 0,
-                                max = 0.5,
-                                step = 0.01,
-                                width = 'full',
-                                order = 1
-                            }
-                        }
-                    }, ]]
-                    --[[ ['Engine'] = {
-                        type = "group",
-                        name = "Engine Settings",
-                        inline = true,
-                        order = 7,
-                        args = {
-                            moreCPU = {
-                                type = "toggle",
-                                name = "Use More CPU",
-                                order = 0,
-                                desc = "If checked, the addon will use a secondary system to retest its recommendations when there are gaps or wait times " ..
-                                    "in your action priorities.  This may result in *slightly* better recommendations, but will definitely use more CPU.",
-                                width = full,
-
-                            },
-
-                        }
-                    }, ]]
+                    addonUrl = {
+                        type = "input",
+                        name = "Twitch/Curse",
+                        desc = "Check Twitch or Curse for addon updates.  The Twitch client does not carry alpha versions, so make sure to check " ..
+                            "the Files section if you want to test the bleeding edge features and specs.",
+                        width = "full",
+                        get = function () return "https://curse.com/addons/wow/hekili" end,
+                        set = function () end,
+                        order = 10
+                    },
+                    discordUrl = {
+                        type = "input",
+                        name = "Discord",
+                        desc = "Have issues?  Questions?  Suggestions?  Come discuss the addon on Discord.  Patrons have access to an additional " ..
+                            "lobby.",
+                        width = "full",
+                        get = function () return "https://discord.gg/3cCTFxM" end,
+                        set = function () end,
+                        order = 11
+                    },
+                    githubUrl = {
+                        type = "input",
+                        name = "GitHub",
+                        desc = "Are you a developer?  Check out the source code and submit issues on GitHub.",
+                        width = "full",
+                        get = function () return "https://github.com/Hekili/hekili" end,
+                        set = function () end,
+                        order = 12
+                    },
+                }
+            },
+            targets = {
+                type = "group",
+                name = "Target Count",
+                order = 71,
+                args = {
+                    ['Delay Description'] = {
+                        type = 'description',
+                        name = "In order to make accurate recommendations based on the number of enemies you are fighting, this addon uses two processes to count targets.  " ..
+                            "The first method is to |cFFFFD100Count Nameplates|r and check whether those enemies are within your |cFFFFD100Nameplate Detection Range|r (typically 8 yards for melee).  " ..
+                            "The second method is to |cFFFFD100Track Damage|r and count enemies you've damaged within the |cFFFFD100Grace Period|r.  Both methods have strengths and disadvantages.\n",
+                        order = 0,
+                        fontSize = "medium",
+                        width = 'full'
+                    },
+                    ['Count Nameplate Targets'] = {
+                        type = 'toggle',
+                        name = "Count Nameplates",
+                        desc = "If checked, the addon will check to see how many hostile nameplates are within the specified range and count them as enemies.\n\n" ..
+                        "If enemy nameplates are not enabled, the addon will fallback to damage-based detection regardless of these settings.\n\n" ..
+                        "This feature is not used by ranged specializations.",
+                        order = 1,
+                    },
+                    ['Nameplate Detection Range'] = {
+                        type = 'range',
+                        name = 'Nameplate Detection Range',
+                        desc = "When |cFFFFD100Count Nameplate Targets|r is checked, the addon will count enemy nameplates within this many yards as active enemies.\n\n" ..
+                        "This value will 'snap' to valid enemy ranges that can be used for target detection.",
+                        min = 5,
+                        max = 100,
+                        step = 1,
+                        set = function( info, val )
+                            -- local values = { [5] = 5, [6] = 6, [8] = 8, [10] = 10, [15] = 15, [20] = 20, [25] = 25, [30] = 30, [35] = 35, [40] = 40, [45] = 45, [50] = 50, [60] = 60, [70] = 70, [80] = 80, [100] = 100 }
+                            local values = { 5, 6, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 100 }
+                            
+                            local closest, difference = 0, 100
+                            
+                            for _, value in ipairs( values ) do
+                                local diff = abs( val - value )
+                                if diff < difference then
+                                    closest = value
+                                    difference = diff
+                                end
+                                
+                                if closest > val then break end
+                            end
+                            
+                            Hekili.DB.profile['Nameplate Detection Range'] = closest
+                        end,
+                        order = 2,
+                        width = 'double',
+                    },
+                    ['Count Targets by Damage'] = {
+                        type = 'toggle',
+                        name = 'Track Damage',
+                        desc = "If checked, the addon will track which units you have recently attacked or have recently attacked you and count them as enemies.\n\n" ..
+                        "If nameplate target detection is turned off, this feature will be used regardless of this setting.\n\n" ..
+                        "For ranged specializations, this feature is always active.",
+                        order = 3,
+                    },
+                    ['Audit Targets'] = {
+                        type = 'range',
+                        name = "Grace Period",
+                        min = 3,
+                        max = 20,
+                        step = 1,
+                        width = 'double',
+                        order = 4,
+                    },
                 }
             },
             notifs = {
@@ -5147,7 +5893,6 @@ function Hekili:GetOptions()
                             end
                             
                             ns.checkImports()
-                            ns.convertDisplays()
                             ns.refreshOptions()
                             ns.loadScripts()
                             ns.buildUI()
@@ -5199,7 +5944,6 @@ function Hekili:GetOptions()
                             end
                             
                             ns.checkImports()
-                            ns.convertDisplays()
                             ns.refreshOptions()
                             ns.loadScripts()
                             ns.buildUI()
@@ -5323,365 +6067,11 @@ function Hekili:GetOptions()
                     },
                 }
             },
-            bindings = {
-                type = 'group',
-                name = 'Toggles',
-                desc = "Formerly 'Filters and Keybinds'",
-                order = 15,
-                childGroups = 'tab',
-                args = {
-                    default = {
-                        type = 'group',
-                        name = 'Default Filters',
-                        order = 0,
-                        args = {
-                            HEKILI_TOGGLE_PAUSE = {
-                                type = 'keybinding',
-                                name = 'Pause',
-                                desc = "Set a key to pause processing of your action lists. Your current display(s) will freeze, and you can mouseover each icon to see information about the displayed action.",
-                                order = 10,
-                            },
-                            Pause = {
-                                type = 'toggle',
-                                name = 'Pause',
-                                order = 11,
-                                width = "double"
-                            },
-                            HEKILI_SNAPSHOT = {
-                                type = 'keybinding',
-                                name = 'Snapshot',
-                                desc = "Set a key to make a snapshot (without pausing) that can be viewed on the Snapshots tab.  This can be useful information for testing and debugging.",
-                                order = 15,
-                            },
-                            ToggleSpacer = {
-                                type = 'description',
-                                name = "\n",
-                                order = 16,
-                                width = "double"
-                            },
-                            HEKILI_TOGGLE_MODE = {
-                                type = 'keybinding',
-                                name = 'Mode Switch',
-                                desc = "Pressing this key will tell the addon to change how it handles the priority lists in the primary display, if your displays and action lists are configured to take advantage of this feature.\n" ..
-                                "|cFFFFD100Auto:|r\nPressing this key will switch between single-target and automatic detection of single-target vs. cleave vs. AOE.\n" ..
-                                "|cFFFFD100Manual:|r\nPressing this key will switch between single-target and AOE. Cleave action lists will not be used.\n",
-                                order = 20,
-                            },
-                            ['Switch Type'] = {
-                                type = 'select',
-                                name = 'Switch Type',
-                                desc = "|cFFFFD100Auto / Single-Target:|r\nPressing the Mode Switch keybind will switch between strict single target (1 enemy) vs. using auto-detection to count active enemies.\n" ..
-                                "|cFFFFD100Single-Target / AOE:|r\nPressing this key will switch between single-target and AOE. AOE is defined as a minimum of 3 targets for default displays.\n",
-                                values = {
-                                    [0] = 'Single-Target <-> Auto',
-                                    [1] = 'Single-Target <-> AOE',
-                                },
-                                order = 21,
-                            },
-                            ['Mode Status'] = {
-                                type = 'select',
-                                name = 'Current Mode',
-                                desc = "Based upon the Switch Type, this setting can switch between single-target, AOE, or auto-detection of enemies.",
-                                values = function(info, val)
-                                    if Hekili.DB.profile['Switch Type'] == 2 then
-                                        return { [0] = 'Single-Target', [1] = 'Cleave', [2] = 'AOE' }
-                                    elseif Hekili.DB.profile['Switch Type'] == 1 then
-                                        return { [0] = 'Single-Target', [2] = 'AOE' }
-                                    elseif Hekili.DB.profile['Switch Type'] == 0 then
-                                        return { [0] = 'Single-Target', [3] = 'Auto-Detect' }
-                                    end
-                                end,
-                                order = 22
-                            },
-                            HEKILI_TOGGLE_COOLDOWNS = {
-                                type = 'keybinding',
-                                name = 'Cooldowns',
-                                desc = 'Set a key for toggling cooldowns on and off.  This option is used by testing the criterion |cFFFFD100toggle.cooldowns|r in your condition scripts.',
-                                order = 30
-                            },
-                            Cooldowns = {
-                                type = 'toggle',
-                                name = 'Show Cooldowns',
-                                order = 31,
-                                -- width = 'double'
-                            },
-                            BloodlustCooldowns = {
-                                type = 'toggle',
-                                name = 'Bloodlust Override',
-                                desc = "When checked, the addon will also show cooldowns when Bloodlust (Heroism, Time Warp, etc.) is active, even if Show Cooldowns is disabled.",
-                                order = 32,
-                            },
-                            HEKILI_TOGGLE_ARTIFACT = {
-                                type = 'keybinding',
-                                name = 'Artifact',
-                                desc = 'Set a key for toggling your artifact on and off. This option is used by testing the criterion |cFFFFD100toggle.artifact|r in your condition scripts.',
-                                order = 33,
-                            },
-                            Artifact = {
-                                type = 'toggle',
-                                name = 'Show Artifact Ability',
-                                order = 34,
-                            },
-                            CooldownArtifact = {
-                                type = 'toggle',
-                                name = 'Cooldown Override',
-                                desc = "When checked, the addon will also show your artifact ability when Show Cooldowns is enabled.",
-                                order = 34.1,
-                            },
-                            HEKILI_TOGGLE_POTIONS = {
-                                type = 'keybinding',
-                                name = 'Potions',
-                                desc = 'Set a key for toggling potions on and off. Potion handling is handled by the addon and does not need to be included in your condition scripts.',
-                                order = 35,
-                            },
-                            Potions = {
-                                type = 'toggle',
-                                name = 'Show Potions',
-                                order = 36,
-                                width = 'double',
-                            },
-                            HEKILI_TOGGLE_INTERRUPTS = {
-                                type = 'keybinding',
-                                name = 'Interrupts',
-                                desc = 'Set a key for toggling interrupts on and off. This option is used by testing the criterion |cFFFFD100toggle.interrupts|r in your condition scripts.',
-                                order = 50
-                            },
-                            Interrupts = {
-                                type = 'toggle',
-                                name = 'Show Interrupts',
-                                order = 51,
-                                width = 'double'
-                            },
-                        }
-                    },
-                    custom = {
-                        type = 'group',
-                        name = 'Custom Filters',
-                        order = 10,
-                        args = {
-                            HEKILI_TOGGLE_1 = {
-                                type = 'keybinding',
-                                name = 'Toggle 1',
-                                order = 10
-                            },
-                            ['Toggle 1 Name'] = {
-                                type = 'input',
-                                name = 'Alias',
-                                desc = 'Set a unique alias for this custom toggle. You can check to see if this toggle is active by testing the criterion |cFFFFD100toggle.one|r or |cFFFFD100toggle.<alias>|r. Aliases must be all lowercase, with no spaces.',
-                                order = 12,
-                                validate = function(info, val)
-                                    if val == '' then
-                                        return true
-                                    elseif val == 'cooldowns' or val == 'hardcasts' or val == 'mode' or val == 'interrupts' then
-                                        Hekili:Print("'" .. val .. "' is a reserved toggle name.")
-                                        return "'" .. val .. "' is a reserved toggle name."
-                                    end
-                                    
-                                    if match(val, "[^a-z]") then
-                                        Hekili:Print("Toggle names must be all lowercase alphabet characters.")
-                                        return "Toggle names must be all lowercase alphabet characters."
-                                        
-                                    else
-                                        local this = tonumber( info[#info]:match('Toggle (%d) Name') )
-                                        
-                                        for i = 1, 5 do
-                                            if i ~= this and val == Hekili.DB.profile['Toggle ' .. i .. ' Name'] then
-                                                Hekili:Print("That name is already in use.")
-                                                return "That name is already in use."
-                                            end
-                                        end
-                                        
-                                    end
-                                    
-                                    return true
-                                end,
-                            },
-                            Toggle_1 = {
-                                type = 'toggle',
-                                name = 'Enabled',
-                                desc = 'Toggle the current state of this custom toggle.',
-                                order = 12,
-                            },
-                            HEKILI_TOGGLE_2 = {
-                                type = 'keybinding',
-                                name = 'Toggle 2',
-                                order = 20
-                            },
-                            ['Toggle 2 Name'] = {
-                                type = 'input',
-                                name = 'Alias',
-                                desc = 'Set a unique alias for this custom toggle. You can check to see if this toggle is active by testing the criterion |cFFFFD100toggle.two|r or |cFFFFD100toggle.<alias>|r. Aliases must be all lowercase, with no spaces.',
-                                order = 21,
-                                validate = function(info, val)
-                                    if val == '' then
-                                        return true
-                                    elseif val == 'cooldowns' or val == 'hardcasts' or val == 'mode' or val == 'interrupts' then
-                                        Hekili:Print("'" .. val .. "' is a reserved toggle name.")
-                                        return "'" .. val .. "' is a reserved toggle name."
-                                    end
-                                    
-                                    if match(val, "[^a-z]") then
-                                        Hekili:Print("Toggle names must be all lowercase alphabet characters.")
-                                        return "Toggle names must be all lowercase alphabet characters."
-                                        
-                                    else
-                                        local this = tonumber( info[#info]:match('Toggle (%d) Name') )
-                                        
-                                        for i = 1, 5 do
-                                            if i ~= this and val == Hekili.DB.profile['Toggle ' .. i .. ' Name'] then
-                                                Hekili:Print("That name is already in use.")
-                                                return "That name is already in use."
-                                            end
-                                        end
-                                        
-                                    end
-                                    
-                                    return true
-                                end,
-                            },
-                            Toggle_2 = {
-                                type = 'toggle',
-                                name = 'Enabled',
-                                desc = 'Toggle the current state of this custom toggle.',
-                                order = 22,
-                            },
-                            HEKILI_TOGGLE_3 = {
-                                type = 'keybinding',
-                                name = 'Toggle 3',
-                                order = 30
-                            },
-                            ['Toggle 3 Name'] = {
-                                type = 'input',
-                                name = 'Alias',
-                                desc = 'Set a unique alias for this custom toggle. You can check to see if this toggle is active by testing the criterion |cFFFFD100toggle.three|r or |cFFFFD100toggle.<alias>|r. Aliases must be all lowercase, with no spaces.',
-                                order = 31,
-                                validate = function(info, val)
-                                    if val == '' then
-                                        return true
-                                    elseif val == 'cooldowns' or val == 'hardcasts' or val == 'mode' or val == 'interrupts' then
-                                        Hekili:Print("'" .. val .. "' is a reserved toggle name.")
-                                        return "'" .. val .. "' is a reserved toggle name."
-                                    end
-                                    
-                                    if match(val, "[^a-z]") then
-                                        Hekili:Print("Toggle names must be all lowercase alphabet characters.")
-                                        return "Toggle names must be all lowercase alphabet characters."
-                                        
-                                    else
-                                        local this = tonumber( info[#info]:match('Toggle (%d) Name') )
-                                        
-                                        for i = 1, 5 do
-                                            if i ~= this and val == Hekili.DB.profile['Toggle ' .. i .. ' Name'] then
-                                                Hekili:Print("That name is already in use.")
-                                                return "That name is already in use."
-                                            end
-                                        end
-                                        
-                                    end
-                                    
-                                    return true
-                                end,
-                            },
-                            Toggle_3 = {
-                                type = 'toggle',
-                                name = 'Enabled',
-                                desc = 'Toggle the current state of this custom toggle.',
-                                order = 32,
-                            },
-                            HEKILI_TOGGLE_4 = {
-                                type = 'keybinding',
-                                name = 'Toggle 4',
-                                order = 40
-                            },
-                            ['Toggle 4 Name'] = {
-                                type = 'input',
-                                name = 'Alias',
-                                desc = 'Set a unique alias for this custom toggle. You can check to see if this toggle is active by testing the criterion |cFFFFD100toggle.four|r or |cFFFFD100toggle.<alias>|r. Aliases must be all lowercase, with no spaces.',
-                                order = 41,
-                                validate = function(info, val)
-                                    if val == '' then
-                                        return true
-                                    elseif val == 'cooldowns' or val == 'hardcasts' or val == 'mode' or val == 'interrupts' then
-                                        Hekili:Print("'" .. val .. "' is a reserved toggle name.")
-                                        return "'" .. val .. "' is a reserved toggle name."
-                                    end
-                                    
-                                    if match(val, "[^a-z]") then
-                                        Hekili:Print("Toggle names must be all lowercase alphabet characters.")
-                                        return "Toggle names must be all lowercase alphabet characters."
-                                        
-                                    else
-                                        local this = tonumber( info[#info]:match('Toggle (%d) Name') )
-                                        
-                                        for i = 1, 5 do
-                                            if i ~= this and val == Hekili.DB.profile['Toggle ' .. i .. ' Name'] then
-                                                Hekili:Print("That name is already in use.")
-                                                return "That name is already in use."
-                                            end
-                                        end
-                                        
-                                    end
-                                    
-                                    return true
-                                end,
-                            },
-                            Toggle_4 = {
-                                type = 'toggle',
-                                name = 'Enabled',
-                                desc = 'Toggle the current state of this custom toggle.',
-                                order = 42,
-                            },
-                            HEKILI_TOGGLE_5 = {
-                                type = 'keybinding',
-                                name = 'Toggle 5',
-                                order = 50
-                            },
-                            ['Toggle 5 Name'] = {
-                                type = 'input',
-                                name = 'Alias',
-                                desc = 'Set a unique alias for this custom toggle. You can check to see if this toggle is active by testing the criterion |cFFFFD100toggle.five|r or |cFFFFD100toggle.<alias>|r. Aliases must be all lowercase, with no spaces.',
-                                order = 51,
-                                validate = function(info, val)
-                                    if val == '' then
-                                        return true
-                                    elseif val == 'cooldowns' or val == 'hardcasts' or val == 'mode' or val == 'interrupts' then
-                                        Hekili:Print("'" .. val .. "' is a reserved toggle name.")
-                                        return "'" .. val .. "' is a reserved toggle name."
-                                    end
-                                    
-                                    if match(val, "[^a-z]") then
-                                        Hekili:Print("Toggle names must be all lowercase alphabet characters.")
-                                        return "Toggle names must be all lowercase alphabet characters."
-                                        
-                                    else
-                                        local this = tonumber( info[#info]:match('Toggle (%d) Name') )
-                                        
-                                        for i = 1, 5 do
-                                            if i ~= this and val == Hekili.DB.profile['Toggle ' .. i .. ' Name'] then
-                                                Hekili:Print("That name is already in use.")
-                                                return "That name is already in use."
-                                            end
-                                        end
-                                        
-                                    end
-                                    
-                                    return true
-                                end,
-                            },
-                            Toggle_5 = {
-                                type = 'toggle',
-                                name = 'Enabled',
-                                desc = 'Toggle the current state of this custom toggle.',
-                                order = 52,
-                            },
-                        }
-                    }
-                }
-            },
+            switches = self:GenerateSwitchOptions(),
             snapshots = {
                 type = "group",
                 name = "Snapshots",
-                order = 70,
+                order = 72,
                 args = {
                     
                     Display = {
@@ -6035,60 +6425,7 @@ function Hekili:GetOptions()
                         order = 20,
                         width = "full",
                         multiline = 10,
-                        get = function ()
-                            local s = state
-
-                            local spec = s.spec.key
-
-                            local talents
-                            for k, v in orderedPairs( s.talent ) do
-                                if v.enabled then
-                                    if talents then talents = format( "%s\n    %s", talents, k )
-                                    else talents = k end
-                                end
-                            end
-
-                            local traits
-                            for k, v in orderedPairs( s.artifact ) do
-                                if v.rank > 0 then
-                                    if traits then traits = format( "%s\n    %s=%d", traits, k, v.rank )
-                                    else traits = format( "%s=%d", k, v.rank ) end
-                                end
-                            end
-
-                            local sets
-                            for k, v in orderedPairs( class.gearsets ) do
-                                if s.set_bonus[ k ] > 0 then
-                                    if sets then sets = format( "%s\n    %s=%d", sets, k, s.set_bonus[k] )
-                                    else sets = format( "%s=%d", k, s.set_bonus[k] ) end
-                                end
-                            end
-
-                            local gear
-                            for k, v in pairs( state.set_bonus ) do
-                                if type(k) == 'string' and v > 0 then
-                                    if gear then gear = format( "%s\n    %s=%d", gear, k, v )
-                                    else gear = format( "    %s=%d", k, v ) end
-                                end
-                            end
-
-                            return format( "build: %s\n" ..
-                                "level: %d\n" ..
-                                "class: %s\n" ..
-                                "spec: %s\n\n" ..
-                                "talents: %s\n\n" ..
-                                "traits: %s\n\n" ..
-                                "sets/legendaries/artifacts: %s\n\n" ..
-                                "gear: %s",
-                                Hekili.Version or "no info",
-                                UnitLevel( 'player' ) or 0,
-                                class.file or "NONE",
-                                spec or "none",
-                                talents or "none",
-                                traits or "none",
-                                sets or "none",
-                                gear or "none" )
-                        end,
+                        get = GenerateCharacterData,
                         set = function () return end
                     },
                     link = {
@@ -6145,13 +6482,6 @@ function Hekili:GetOptions()
     for i, v in ipairs(Hekili.DB.profile.displays) do
         local dispKey = 'D' .. i
         Options.args.displays.args[ dispKey ] = ns.newDisplayOption( i )
-        
-        --[[ if v.Queues then
-        for key, value in ipairs( v.Queues ) do
-            Options.args.displays.args[ dispKey ].args[ 'P' .. key ] = ns.newHookOption( i, key )
-        end
-    end ]]
-        
     end
     
     for i,v in ipairs(Hekili.DB.profile.actionLists) do
@@ -6196,12 +6526,11 @@ function Hekili:TotalRefresh()
         end
     end
     
-    ns.convertDisplays()
     ns.runOneTimeFixes()
     ns.checkImports()
     ns.refreshOptions()
     ns.buildUI()
-    ns.overrideBinds()
+    self:OverrideBinds()
     
     LibStub("LibDBIcon-1.0"):Refresh( "Hekili", self.DB.profile.iconStore )
     
@@ -6213,22 +6542,15 @@ ns.refreshOptions = function()
     if not Hekili.Options then return end
     
     -- Remove existing displays from Options and rebuild the options table.
-    for k,_ in pairs(Hekili.Options.args.displays.args) do
+    for k in pairs( Hekili.Options.args.displays.args ) do
         if match(k, "^D(%d+)") then
             Hekili.Options.args.displays.args[k] = nil
         end
     end
     
-    for i,v in ipairs(Hekili.DB.profile.displays) do
+    for i,v in ipairs( Hekili.DB.profile.displays ) do
         local dispKey = 'D' .. i
         Hekili.Options.args.displays.args[ dispKey ] = ns.newDisplayOption( i )
-        
-        --[[ if v.Queues then
-        for p, value in ipairs( v.Queues ) do
-            local hookKey = 'P' .. p
-            Hekili.Options.args.displays.args[ dispKey ].args[ hookKey ] = ns.newHookOption( i, p )
-        end
-    end ]]
     end
     
     for k,_ in pairs(Hekili.Options.args.actionLists.args) do
@@ -6271,6 +6593,9 @@ function Hekili:GetOption( info, input )
     local profile = Hekili.DB.profile
     
     if category == 'general' then
+        if option == 'minimap' then
+            return not profile.iconStore.hide
+        end
         return profile[option]
         
     elseif category == 'class' then
@@ -6285,9 +6610,9 @@ function Hekili:GetOption( info, input )
     elseif category == 'abilities' then
         local ability = info[2]
 
-        if option == 'exclude' then return profile.blacklist[ ability ]
-        elseif option == 'clash' then return profile.clashes[ ability ] or 0
-        elseif option == 'toggle' then return profile.toggles[ ability ] or 'default'
+        if option == 'exclude' then return profile.abilities[ ability ].disabled
+        elseif option == 'clash' then return profile.abilities[ ability ].clash
+        elseif option == 'toggle' then return profile.abilities[ ability ].toggle
         elseif option:match( "^(%d+):(%d+)$" ) then
             local list, action = option:match( "^(%d+):(%d+)$" )
             list = tonumber( list )
@@ -6305,20 +6630,7 @@ function Hekili:GetOption( info, input )
             return tostring( profile[ option ] )
         end
         return profile[option]
-        
-    elseif category == 'bindings' then
-        
-        if option:match( "TOGGLE" ) or option == "HEKILI_SNAPSHOT" then
-            return select( 1, GetBindingKey( option ) )
-            
-        elseif option == 'Pause' then
-            return self.Pause
-            
-        else
-            return profile[ option ]
-            
-        end
-        
+                
     elseif category == 'displays' then
         
         -- This is a generic display option/function.
@@ -6433,7 +6745,7 @@ function Hekili:SetOption( info, input, ... )
         -- We'll preset the option here; works for most options.
         profile[ option ] = input
         
-        if option == 'Enabled' then
+        if option == 'enabled' then
             for i, buttons in ipairs( ns.UI.Buttons ) do
                 for j, _ in ipairs( buttons ) do
                     if input == false then
@@ -6443,25 +6755,15 @@ function Hekili:SetOption( info, input, ... )
                     end
                 end
             end
-            
             if input == true then self:Enable()
-        else self:Disable() end
-            
+            else self:Disable() end
             return
             
-        elseif option == 'Locked' then
-            if not self.Config and not self.Pause then
-                for i, v in ipairs( ns.UI.Buttons ) do
-                    ns.UI.Buttons[i][1]:EnableMouse( not input )
-                end
-                ns.UI.Notification:EnableMouse( not input )
-            end
-            
-        elseif option == 'MinimapIcon' then
-            profile.iconStore.hide = input
+        elseif option == 'minimap' then
+            profile.iconStore.hide = not input
             
             if LDBIcon then
-                if input then
+                if not input then
                     LDBIcon:Hide( "Hekili" )
                 else
                     LDBIcon:Show( "Hekili" )
@@ -6484,7 +6786,7 @@ function Hekili:SetOption( info, input, ... )
                 Hekili:ClassToggle( option:match("State: (.-)$") )
             else
                 profile[ 'Toggle ' .. option ] = input
-                ns.overrideBinds()
+                Hekili:OverrideBinds()
             end
             
         elseif subcategory == 'settings' then
@@ -6495,9 +6797,9 @@ function Hekili:SetOption( info, input, ... )
     elseif category == 'abilities' then
         local ability = info[2]
 
-        if option == 'exclude' then profile.blacklist[ ability ] = input
-        elseif option == 'clash' then profile.clashes[ ability ] = tonumber( input ) or 0
-        elseif option == 'toggle' then profile.toggles[ ability ] = input or 'default'
+        if option == 'exclude' then profile.abilities[ ability ].disabled = input
+        elseif option == 'clash' then profile.abilities[ ability ].clash = tonumber( input ) or 0
+        elseif option == 'toggle' then profile.abilities[ ability ].toggle = input or 'default'
         elseif option:match( "^(%d+):(%d+)$" ) then
             local list, action = option:match( "^(%d+):(%d+)$" )
 
@@ -6521,79 +6823,6 @@ function Hekili:SetOption( info, input, ... )
         end
         
         RebuildUI = true
-        
-    elseif category == 'bindings' then
-        
-        local revert = profile[ option ]
-        profile[ option ] = input
-        
-        if option:match( "TOGGLE" ) or option == "HEKILI_SNAPSHOT" then
-            if GetBindingKey( option ) then
-                SetBinding( GetBindingKey( option ) )
-            end
-            SetBinding( input, option )
-            SaveBindings( GetCurrentBindingSet() )
-            
-        elseif option == 'Mode' then
-            profile[option] = revert
-            self:ToggleMode()
-            
-        elseif option == 'Pause' then
-            profile[option] = revert
-            self:TogglePause()
-            return
-
-        elseif option == 'Cooldowns' then
-            profile[option] = revert
-            self:ToggleCooldowns()
-            return
-
-        elseif option == 'Artifact' then
-            profile[option] = revert
-            self:ToggleArtifact()
-            return
-            
-        elseif option == 'Potions' then
-            profile[option] = revert
-            self:TogglePotions()
-            return
-            
-        elseif option == 'Hardcasts' then
-            profile[option] = revert
-            self:ToggleHardcasts()
-            return
-            
-        elseif option == 'Interrupts' then
-            profile[option] = revert
-            self:ToggleInterrupts()
-            return
-            
-        elseif option == 'Switch Type' then
-            if input == 0 then
-                if profile['Mode Status'] == 1 or profile['Mode Status'] == 2 then
-                    -- Check that the current mode is supported.
-                    profile['Mode Status'] = 0
-                    self:Print("Switch type updated; reverting to single-target.")
-                end
-            elseif input == 1 then
-                if profile['Mode Status'] == 1 or profile['Mode Status'] == 3 then
-                    profile['Mode Status'] = 0
-                    self:Print("Switch type updated; reverting to single-target.")
-                end
-            end
-            
-        elseif option == 'Mode Status' or option:match("Toggle_") or option == 'BloodlustCooldowns' or option == 'CooldownArtifact' then
-            -- do nothing, we're good.
-            
-        else -- Toggle Names.
-            if input:trim() == "" then
-                profile[ option ] = nil
-            end
-            
-        end
-        
-        -- Bindings do not need add'l handling.
-        return
         
     elseif category == 'displays' then
         
@@ -7076,7 +7305,6 @@ function Hekili:CmdLine( input )
         Hekili.DB.profile.displays = {}
         Hekili.DB.profile.actionLists = {}
         ns.restoreDefaults()
-        ns.convertDisplays()
         ns.buildUI()
         Hekili:Print("Default displays and action lists restored.")
         
@@ -8224,7 +8452,7 @@ function Hekili:TogglePause( ... )
         self.Pause = false
     end
     
-    local MouseInteract = self.Pause or self.Config or ( not Hekili.DB.profile.Locked )
+    local MouseInteract = self.Pause or self.Config
     
     for i = 1, #ns.UI.Buttons do
         for j = 1, #ns.UI.Buttons[i] do
@@ -8293,67 +8521,85 @@ local modeMsgs = {
 
 
 function Hekili:ToggleMode()
-    local switch = Hekili.DB.profile['Switch Type']
+    local p = self.DB.profile
+    local switch = p.switchType 
     
-    Hekili.DB.profile['Mode Status'] = nextMode[ switch ][ Hekili.DB.profile['Mode Status'] ]
+    p.mode = nextMode[ switch ][ p.mode ]
     
-    Hekili:Print( modeMsgs[ Hekili.DB.profile['Mode Status'] ].p )
-    Hekili:Notify( modeMsgs[ Hekili.DB.profile['Mode Status'] ].n )
+    self:Print( modeMsgs[ p.mode ].p )
+    self:Notify( modeMsgs[ p.mode ].n )
 
     self:UpdateDisplayVisibility()
 
-    if WeakAuras then WeakAuras.ScanEvents( 'HEKILI_TOGGLE_MODE', Hekili.DB.profile['Mode Status'] ) end
+    if WeakAuras then WeakAuras.ScanEvents( 'HEKILI_TOGGLE_MODE', p.mode ) end
     if ns.UI.Minimap then ns.UI.Minimap:RefreshDataText() end
     
     self:ForceUpdate( "HEKILI_TOGGLE_MODE", true )
 end
 
 
-function Hekili:ToggleInterrupts()
-    Hekili.DB.profile.Interrupts = not Hekili.DB.profile.Interrupts
-    Hekili:Print( Hekili.DB.profile.Interrupts and "Interrupts |cFF00FF00ENABLED|r." or "Interrupts |cFFFF0000DISABLED|r." )
-    Hekili:Notify( "Interrupts " .. ( Hekili.DB.profile.Interrupts and "ON" or "OFF" ) )
-    
-    if WeakAuras then WeakAuras.ScanEvents( 'HEKILI_TOGGLE_INTERRUPTS', Hekili.DB.profile.Interrupts ) end
-    if ns.UI.Minimap then ns.UI.Minimap:RefreshDataText() end   
-    
-    self:ForceUpdate( "HEKILI_TOGGLE_INTERRUPTS", true )
+local overrideInitialized = false
+
+function Hekili:OverrideBinds()
+
+    if InCombatLockdown() then
+        C_Timer.After( 5, self.OverrideBinds )
+        return
+    end
+
+    if overrideInitialized then
+        ClearOverrideBindings( Hekili_Keyhandler )
+    end 
+
+    local p = Hekili.DB.profile
+
+    for switch, data in pairs( p.switches ) do
+        if data.bind then
+            SetOverrideBindingClick( Hekili_Keyhandler, true, data.bind, "Hekili_Keyhandler", data.bind )
+            overrideInitialized = true
+        end
+    end
+
 end
 
 
-function Hekili:ToggleCooldowns()
-    Hekili.DB.profile.Cooldowns = not Hekili.DB.profile.Cooldowns
-    Hekili:Print( Hekili.DB.profile.Cooldowns and "Cooldowns |cFF00FF00ENABLED|r." or "Cooldowns |cFFFF0000DISABLED|r." )
-    Hekili:Notify( "Cooldowns " .. ( Hekili.DB.profile.Cooldowns and "ON" or "OFF" ) )
+function Hekili:ToggleSwitch( key )
+    local db = self.DB.char.switches
+    local p = self.DB.profile
     
-    if WeakAuras then WeakAuras.ScanEvents( 'HEKILI_TOGGLE_COOLDOWNS', Hekili.DB.profile.Cooldowns ) end
-    if ns.UI.Minimap then ns.UI.Minimap:RefreshDataText() end
-    
-    self:ForceUpdate( "HEKILI_TOGGLE_COOLDOWNS", true )
+    for switch, data in pairs( p.switches ) do
+        if data.bind and data.bind == key then
+            db[ switch ] = not db[ switch ]
+
+            local name = data.name or switch
+            local action = db[ switch ] and " |cFF00FF00ACTIVATED|r." or " |cFFFF0000DEACTIVATED|r."
+
+            self:Print( name .. action )
+            self:Notify( name .. action )
+
+            self:UpdateDisplayVisibility()
+            self:ForceUpdate( "HEKILI_TOGGLE", switch, db[ key ] )
+            if WeakAuras then WeakAuras.ScanEvents( "HEKILI_TOGGLE", switch, db[ key ] ) end
+            if ns.UI.Minimap then ns.UI.Minimap:RefreshDataText() end
+        end
+    end
 end
 
 
-function Hekili:ToggleArtifact()
-    Hekili.DB.profile.Artifact = not Hekili.DB.profile.Artifact
-    Hekili:Print( Hekili.DB.profile.Artifact and "Artifact |cFF00FF00ENABLED|r." or "Artifact |cFFFF0000DISABLED|r." )
-    Hekili:Notify( "Artifact " .. ( Hekili.DB.profile.Artifact and "ON" or "OFF" ) )
+function Hekili:AutoToggleSwitch( switch )
+    local db = self.DB.char.switches
+    local s = db.profile.switches[ switch ]
 
-    if WeakAuras then WeakAuras.ScanEvents( 'HEKILI_TOGGLE_ARTIFACT', Hekili.DB.profile.Artifact ) end
-    if ns.UI.Minimap then ns.UI.Minimap:RefreshDataText() end
+    db[ switch ] = not db[ switch ]
 
-    self:ForceUpdate( "HEKILI_TOGGLE_ARTIFACT", true )
-end
+    local name = s.name or switch
+    local action = db[ switch ] and " |cFF00FF00AUTO-ACTIVATED|r." or " |cFFFF0000DEACTIVATED|r."
 
+    self:Print( name .. action )
+    self:Notify( name .. action )
 
-function Hekili:TogglePotions()
-    Hekili.DB.profile.Potions = not Hekili.DB.profile.Potions
-    Hekili:Print( Hekili.DB.profile.Potions and "Potions |cFF00FF00ENABLED|r." or "Potions |cFFFF0000DISABLED|r." )
-    Hekili:Notify( "Potions " .. ( Hekili.DB.profile.Potions and "ON" or "OFF" ) )
-    
-    if WeakAuras then WeakAuras.ScanEvents( 'HEKILI_TOGGLE_POTIONS', Hekili.DB.profile.Potions ) end
-    if ns.UI.Minimap then ns.UI.Minimap:RefreshDataText() end
-    
-    self:ForceUpdate( "HEKILI_TOGGLE_POTIONS", true )
+    self:ForceUpdate( "HEKILI_TOGGLE", switch, db[ switch ] )
+    if WeakAuras then WeakAuras.ScanEvents( "HEKILI_TOGGLE", switch, db[ switch ] ) end
 end
 
 

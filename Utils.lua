@@ -45,12 +45,18 @@ function ns.formatKey( s )
 end
 
 
-ns.titleCase = function( s )
+ns.titleCase = function( s, nosubs )
     local helper = function( first, rest )
         return first:upper()..rest:lower()
     end
 
-    return s:gsub( "_", " " ):gsub( "(%a)([%w_']*)", helper ):gsub( "[Aa]oe", "AOE" ):gsub( "[Rr]jw", "RJW" ):gsub( "[Cc]hix", "ChiX" ):gsub( "(%W?)[Ss]t(%W?)", "%1ST%2" )
+    s = s:gsub( "_", " " ):gsub( "(%a)([%w_']*)", helper )
+    
+    if not nosubs then
+        s = s:gsub( "[Aa]oe", "AOE" ):gsub( "[Rr]jw", "RJW" ):gsub( "[Cc]hix", "ChiX" ):gsub( "(%W?)[Ss]t(%W?)", "%1ST%2" )
+    end
+
+    return s
 end
 
 

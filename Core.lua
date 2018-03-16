@@ -21,11 +21,8 @@ local isKnown = ns.isKnown
 local isUsable = ns.isUsable
 local isTimeSensitive = ns.isTimeSensitive
 local loadScripts = ns.loadScripts
-local refreshBindings = ns.refreshBindings
 local refreshOptions = ns.refreshOptions
 local restoreDefaults = ns.restoreDefaults
-local runOneTimeFixes = ns.runOneTimeFixes
-local convertDisplays = ns.convertDisplays
 local runHandler = ns.runHandler
 local tableCopy = ns.tableCopy
 local timeToReady = ns.timeToReady
@@ -223,14 +220,16 @@ function Hekili:OnInitialize()
         
         function ns.UI.Minimap:RefreshDataText()
             local p = Hekili.DB.profile
+            local s = Hekili.DB.char.switches
+            
             local color = "FFFFD100"
             
             self.text = format( "|c%s%s|r %sCD|r %sInt|r %sPot|r",
             color,
-            p['Mode Status'] == 0 and "Single" or ( p['Mode Status'] == 2 and "AOE" or ( p['Mode Status'] == 3 and "Auto" or "X" ) ),
-            p.Cooldowns and "|cFF00FF00" or "|cFFFF0000",
-            p.Interrupts and "|cFF00FF00" or "|cFFFF0000",
-            p.Potions and "|cFF00FF00" or "|cFFFF0000" )
+            p.mode == 0 and "Single" or ( p.mode == 2 and "AOE" or ( p.mode == 3 and "Auto" or "X" ) ),
+            s.cooldowns and "|cFF00FF00" or "|cFFFF0000",
+            s.interrupts and "|cFF00FF00" or "|cFFFF0000",
+            s.potions and "|cFF00FF00" or "|cFFFF0000" )
         end
         
         ns.UI.Minimap:RefreshDataText()
@@ -239,19 +238,10 @@ function Hekili:OnInitialize()
             LDBIcon:Register( "Hekili", ns.UI.Minimap, self.DB.profile.iconStore )
         end
     end
-    
-    
-    if not self.DB.profile.Version or self.DB.profile.Version < 7 or not self.DB.profile.Release or self.DB.profile.Release < 20161000 then
-        self.DB:ResetDB()
-    end
-    
-    self.DB.profile.Release = self.DB.profile.Release or 20170416.0
-    
+       
     initializeClassModule()
-    refreshBindings()
+    self:RefreshBindings()
     restoreDefaults()
-    runOneTimeFixes()
-    convertDisplays()
     checkImports()
     refreshOptions()
     loadScripts()
@@ -266,8 +256,8 @@ function Hekili:OnInitialize()
     callHook( "onInitialize" )
     
     if class.file == 'NONE' then
-        if self.DB.profile.Enabled then
-            self.DB.profile.Enabled = false
+        if self.DB.profile.enabled then
+            self.DB.profile.enabled = false
             self.DB.profile.AutoDisabled = true
         end
         for i, buttons in ipairs( ns.UI.Buttons ) do
@@ -282,12 +272,10 @@ end
 
 function Hekili:ReInitialize()
     ns.initializeClassModule()
-    refreshBindings()
+    self:RefreshBindings()
     restoreDefaults()
-    convertDisplays()
     checkImports()
     refreshOptions()
-    runOneTimeFixes()
     loadScripts()
     
     ns.updateTalents()
@@ -297,14 +285,14 @@ function Hekili:ReInitialize()
         
     callHook( "onInitialize" )
     
-    if self.DB.profile.Enabled == false and self.DB.profile.AutoDisabled then 
+    if self.DB.profile.enabled == false and self.DB.profile.AutoDisabled then 
         self.DB.profile.AutoDisabled = nil
-        self.DB.profile.Enabled = true
+        self.DB.profile.enabled = true
         self:Enable()
     end
     
     if class.file == 'NONE' then
-        self.DB.profile.Enabled = false
+        self.DB.profile.enabled = false
         self.DB.profile.AutoDisabled = true
         for i, buttons in ipairs( ns.UI.Buttons ) do
             for j, _ in ipairs( buttons ) do
@@ -323,13 +311,13 @@ function Hekili:OnEnable()
     ns.StartEventHandler()
     buildUI()
     self:ForceUpdate()
-    ns.overrideBinds()
+    self:OverrideBinds()
     ns.ReadKeybindings()
     
     self.s = ns.state
     
     -- May want to refresh configuration options, key bindings.
-    if self.DB.profile.Enabled then
+    if self.DB.profile.enabled then
         -- self:UpdateDisplays()
         ns.Audit()
     else
@@ -340,7 +328,7 @@ end
 
 
 function Hekili:OnDisable()
-    self.DB.profile.Enabled = false
+    self.DB.profile.enabled = false
     self:UpdateDisplayVisibility()
 
     ns.StopEventHandler()
@@ -349,8 +337,8 @@ end
 
 
 function Hekili:Toggle()
-    self.DB.profile.Enabled = not self.DB.profile.Enabled
-    if self.DB.profile.Enabled then self:Enable()
+    self.DB.profile.enabled = not self.DB.profile.enabled
+    if self.DB.profile.enabled then self:Enable()
     else self:Disable() end
     self:UpdateDisplayVisibility()
 end
@@ -1763,309 +1751,6 @@ end
 local flashes = {}
 local checksums = {}
 local applied = {}
-
-
-
--- Displays:
--- 1. Need to be updated when recommendations change.
--- 2. Need to be updated every 0.1s or so for range-checking.
--- 3  Need to be updated when cooldowns on recommendations change.
-
-
---[[ function Hekili:UpdateDisplay( dispID )
-
-    if not self.DB.profile.Enabled then
-        return
-    end
-    
-    -- for dispID, display in pairs(self.DB.profile.displays) do
-    local display = self.DB.profile.displays[ dispID ]
-    
-    if not ns.UI.Buttons or not ns.UI.Buttons[ dispID ] then print('nobuttons'); return end
-    
-    if self.Pause and not self.ActiveDebug then
-        ns.UI.Buttons[ dispID ][1].Overlay:SetTexture('Interface\\Addons\\Hekili\\Textures\\Pause.blp')
-        ns.UI.Buttons[ dispID ][1].Overlay:Show()
-    else
-        ns.UI.Buttons[ dispID ][1].Overlay:Hide()
-    end
-
-    flashes[dispID] = flashes[dispID] or 0
-    
-    local alpha = self:CheckDisplayCriteria( dispID ) or 0
-
-    if alpha > 0 and self:IsDisplayActive( dispID ) then
-        local Queue = ns.queue[ dispID ]
-        
-        _G[ "HekiliDisplay" .. dispID ]:Show()
-        
-        local gcd_start, gcd_duration = GetSpellCooldown( class.abilities.global_cooldown.id )
-        local now = GetTime()
-
-        for i, button in ipairs( ns.UI.Buttons[ dispID ] ) do
-            if not Queue or not Queue[i] and ( self.DB.profile.Enabled or self.Config ) then
-                for n = i, display.numIcons do
-                    ns.UI.Buttons[dispID][n].Texture:SetTexture( 'Interface\\ICONS\\Spell_Nature_BloodLust' )
-                    ns.UI.Buttons[dispID][n].Texture:SetVertexColor(1, 1, 1)
-                    ns.UI.Buttons[dispID][n].Caption:SetText(nil)
-                    if not self.Config then
-                        ns.UI.Buttons[dispID][n]:Hide()
-                    else
-                        ns.UI.Buttons[dispID][n]:Show()
-                        ns.UI.Buttons[dispID][n]:SetAlpha(alpha)
-                    end
-                end
-                break
-            end
-            
-            local aKey, caption, indicator, binding = Queue[i].actionName, Queue[i].caption, Queue[i].indicator, Queue[i].keybind
-            local ability = aKey and class.abilities[ aKey ]
-            
-            if ability then
-                button:Show()
-                button:SetAlpha( alpha )
-                button.Texture:SetTexture( Queue[i].texture or ability.texture or GetSpellTexture( ability.id ) )
-                button.Texture:Show()
-                
-                if display.showIndicators and indicator then
-                    if indicator == 'cycle' then button.Icon:SetTexture( "Interface\\Addons\\Hekili\\Textures\\Cycle" ) end
-                    if indicator == 'cancel' then button.Icon:SetTexture( "Interface\\Addons\\Hekili\\Textures\\Cancel" ) end
-                    button.Icon:Show()
-                else
-                    button.Icon:Hide()
-                end
-                
-                if display.showCaptions and ( i == 1 or display.queuedCaptions ) then
-                    button.Caption:SetText( caption )
-                else
-                    button.Caption:SetText( nil )
-                end
-                
-                if display.showKeybindings and ( display.queuedKBs or i == 1 ) then
-                    button.Keybinding:SetText( binding )
-                else
-                    button.Keybinding:SetText( nil )
-                end
-                
-                if display.showAuraInfo and i == 1 then
-                    if type( display.auraSpellID ) == 'string' or display.auraSpellID > 0 then
-                        local aura = class.auras[ display.auraSpellID ]
-                        
-                        if not aura then 
-                            button.Auras:SetText(nil)
-                        else
-                            if display.auraInfoType == 'count' then
-                                local c = ns.numDebuffs( aura.name )
-                                button.Auras:SetText( c > 0 and c or "" )
-                                
-                            elseif display.auraInfoType == 'buff' then
-                                local name, _, _, count = UnitBuff( display.auraUnit, aura.name, nil, display.auraMine and "PLAYER" or "" )
-                                if not name then button.Auras:SetText( nil )
-                            else button.Auras:SetText( max( 1, count ) ) end
-                                
-                            elseif display.auraInfoType == 'debuff' then
-                                local name, _, _, count = UnitDebuff( display.auraUnit, aura.name, nil, display.auraMine and "PLAYER" or "" )
-                                
-                                if not name then button.Auras:SetText( nil )
-                            else button.Auras:SetText( max( 1, count ) ) end
-                                
-                            elseif display.auraInfoType == 'buffRem' then
-                                local name, _, _, _, _, _, expires = UnitBuff( display.auraUnit, aura.name, nil, display.auraMine and "PLAYER" or "" )
-                                if not name then button.Auras:SetText( nil )
-                            else button.Auras:SetText( format( "%.1f", expires - now ) ) end
-                                
-                            elseif display.auraInfoType == 'debuffRem' then
-                                local name, _, _, _, _, _, expires = UnitDebuff( display.auraUnit, aura.name, nil, display.auraMine and "PLAYER" or "" )
-                                if not name then button.Auras:SetText( nil )
-                            else button.Auras:SetText( format( "%.1f", expires - now ) ) end
-                                
-                            end
-                        end
-                    else button.Auras:SetText( nil ) end
-                end
-                
-                if i == 1 then
-                    if display.showTargets then
-                        -- 0 = single
-                        -- 2 = cleave
-                        -- 2 = aoe
-                        -- 3 = auto
-                        local min_targets, max_targets = 0, 0
-                        local mode = Hekili.DB.profile['Mode Status']
-                        
-                        if display.displayType == 'a' then -- Primary
-                            if mode == 0 then
-                                min_targets = 0
-                                max_targets = 1
-                            elseif mode == 2 then
-                                min_targets = display.simpleAOE or 2
-                                max_targets = 0
-                            end
-                            
-                        elseif display.displayType == 'b' then -- Single-Target
-                            min_targets = 0
-                            max_targets = 1
-                            
-                        elseif display.displayType == 'c' then -- AOE
-                            min_targets = display.simpleAOE or 2
-                            max_targets = 0
-                            
-                        elseif display.displayType == 'd' then -- Auto
-                            -- do nothing
-                            
-                        elseif display.displayType == 'z' then -- Custom, old style.
-                            if mode == 0 then
-                                if display.minST > 0 then min_targets = display.minST end
-                                if display.maxST > 0 then max_targets = display.maxST end
-                            elseif mode == 2 then
-                                if display.minAE > 0 then min_targets = display.minAE end
-                                if display.maxAE > 0 then max_targets = display.maxAE end
-                            elseif mode == 3 then
-                                if display.minAuto > 0 then min_targets = display.minAuto end
-                                if display.maxAuto > 0 then max_targets = display.maxAuto end
-                            end
-                        end
-                        
-                        -- local detected = ns.getNameplateTargets()
-                        -- if detected == -1 then detected = ns.numTargets() end
-                        
-                        local detected = max( 1, ns.getNumberTargets() )
-                        local targets = detected
-                        
-                        if min_targets > 0 then targets = max( min_targets, targets ) end
-                        if max_targets > 0 then targets = min( max_targets, targets ) end
-                        
-                        local targColor = ''
-                        
-                        if detected < targets then targColor = '|cFFFF0000'
-                            elseif detected > targets then targColor = '|cFF00C0FF' end
-                        
-                        if targets > 1 then button.Targets:SetText( targColor .. targets .. '|r' )
-                    else button.Targets:SetText( nil ) end
-                    else
-                        button.Targets:SetText( nil )
-                    end
-                end
-                
-                if display.blizzGlow and ( i == 1 or display.queuedBlizzGlow ) and IsSpellOverlayed( ability.id ) then
-                    ActionButton_ShowOverlayGlow( button )
-                else
-                    ActionButton_HideOverlayGlow( button )
-                end
-                
-                local start, duration
-                if ability.item then
-                    start, duration = GetItemCooldown( ability.item )
-                -- elseif not ability.cooldown or ability.cooldown == 0 then
-                --    start, duration = 0, 0
-                else
-                    start, duration = GetSpellCooldown( ability.id )
-                    if duration < 0.01 then start, duration = 0, 0 end
-                end
-                local gcd_remains = gcd_start + gcd_duration - GetTime()
-                
-                if ability.gcdType ~= 'off' and ( not start or start == 0 or ( start + duration ) < ( gcd_start + gcd_duration ) ) then
-                    start = gcd_start
-                    duration = gcd_duration
-                end
-                
-                if i == 1 then
-                    -- button.Cooldown:SetCooldown( start, duration )
-
-                    local SF = SpellFlash or SpellFlashCore
-                    
-                    if SF and display.spellFlash and GetTime() >= flashes[dispID] + 0.2 then
-                        SF.FlashAction( ability.id, display.spellFlashColor )
-                        flashes[dispID] = GetTime()
-                    end
-                else
-                    if start + duration ~= gcd_start + gcd_duration then
-                        --button.Cooldown:SetCooldown( start, duration )
-                    else
-                        if ability.gcdType ~= 'off' then
-                            --button.Cooldown:SetCooldown( gcd_start, gcd_duration )
-                        else
-                            --button.Cooldown:SetCooldown( 0, 0 )
-                        end
-                    end
-                end
-                
-                if display.rangeType == 'melee' then
-                    local RangeCheck = LibStub( "LibRangeCheck-2.0" )
-                    local minR = RangeCheck:GetRange( 'target' )
-                    
-                    if minR and minR >= 5 then 
-                        ns.UI.Buttons[dispID][i].Texture:SetVertexColor(1, 0, 0)
-                    elseif i == 1 and select(2, IsUsableSpell( ability.id ) ) then
-                        ns.UI.Buttons[dispID][i].Texture:SetVertexColor(0.4, 0.4, 0.4)
-                    else
-                        ns.UI.Buttons[dispID][i].Texture:SetVertexColor(1, 1, 1)
-                    end
-                elseif display.rangeType == 'ability' then
-                    local rangeSpell = ability.range and GetSpellInfo( ability.range ) or ability.name
-
-                    if ability.item then
-                        if UnitExists( "target" ) and UnitCanAttack( "player", "target" ) and IsItemInRange( ability.item, "target" ) == false then
-                            ns.UI.Buttons[ dispID ][ i ].Texture:SetVertexColor( 1, 0, 0 )
-                        else
-                            ns.UI.Buttons[ dispID ][ i ].Texture:SetVertexColor( 1, 1, 1 )
-                        end
-
-                    else
-                        local SpellRange = LibStub( "SpellRange-1.0" )
-                        if SpellRange.IsSpellInRange( rangeSpell, 'target' ) == 0 then
-                            ns.UI.Buttons[dispID][i].Texture:SetVertexColor(1, 0, 0)
-                        elseif i == 1 and select(2, IsUsableSpell( ability.id )) then
-                            ns.UI.Buttons[dispID][i].Texture:SetVertexColor(0.4, 0.4, 0.4)
-                        else
-                            ns.UI.Buttons[dispID][i].Texture:SetVertexColor(1, 1, 1)
-                        end
-                    end
-
-                elseif display.rangeType == 'off' then
-                    ns.UI.Buttons[dispID][i].Texture:SetVertexColor(1, 1, 1)
-                end
-                
-            else
-                
-                ns.UI.Buttons[dispID][i].Texture:SetTexture( nil )
-                ns.UI.Buttons[dispID][i].Cooldown:SetCooldown( 0, 0 )
-                ns.UI.Buttons[dispID][i]:Hide()
-                
-            end
-            
-        end
-        
-    else
-        
-        for i, button in ipairs(ns.UI.Buttons[dispID]) do
-            button:Hide()
-            
-        end
-    end
-end
-ns.cpuProfile.UpdateDisplay = Hekili.UpdateDisplay
-
-
-local updateCount = 0
-local lastReport = 0
-
-function Hekili:UpdateDisplays()
-    local now = GetTime()
-    
-    for display, update in pairs( updatedDisplays ) do
-        if ( recommendChange[ display ] or now - update >= 1 ) then
-            Hekili:UpdateDisplay( display )
-            recommendChange[ display ] = nil
-            updatedDisplays[ display ] = now
-            updateCount = updateCount + 1
-            if now - lastReport >= 10 then
-                updateCount = 0
-                lastReport = now
-            end
-        end
-    end
-end ]]
 
 
 function Hekili:DumpProfileInfo()

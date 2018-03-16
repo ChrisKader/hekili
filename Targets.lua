@@ -314,7 +314,7 @@ ns.Audit = function ()
     end
   end
 
-  if Hekili.DB.profile.Enabled then
+  if Hekili.DB.profile.enabled then
     C_Timer.After( 1, ns.Audit )
   end
 

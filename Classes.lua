@@ -21,17 +21,30 @@ ns.initializeClassModule = function()
 end
 
 
-ns.addToggle = function( name, default, optionName, optionDesc )
+ns.addToggle = function( name, default, optionName, optionDesc, pClass, blOverride, swOverride, auto )
 
     table.insert( class.toggles, {
         name = name,
         state = default,
         option = optionName,
-        oDesc = optionDesc
+        oDesc = optionDesc,
+        class = pClass,
+        blOverride = blOverride,
+        swOverride = swOverride,
+        auto = auto
     } )
 
-    if Hekili.DB.profile[ 'Toggle State: ' .. name ] == nil then
-        Hekili.DB.profile[ 'Toggle State: ' .. name ] = default
+    local p = Hekili.DB.profile
+
+    if rawget( p.switches, name ) == nil then
+        p.switches[ name ] = {
+            name = optionName,
+            active = default,
+            class = pClass,
+            auto = auto,
+            blOverride = blOverride,
+            swOverride = swOverride
+        }
     end
 
 end
@@ -63,34 +76,6 @@ ns.addWhitespace = function( name, size )
             width = size
         }
     } )
-
-end
-
-
-local overrideInitialized = false
-
-ns.overrideBinds = function()
-
-    if InCombatLockdown() then
-        C_Timer.After( 5, ns.overrideBinds )
-        return
-    end
-
-    if overrideInitialized then
-        ClearOverrideBindings( Hekili_Keyhandler )
-    end 
-
-    for i, toggle in ipairs( class.toggles ) do
-        for j = 1, 5 do
-            if Hekili.DB.profile[ 'Toggle ' .. j .. ' Name' ] == toggle.name then
-                Hekili.DB.profile[ 'Toggle ' .. j .. ' Name' ] = nil
-            end
-        end
-        if Hekili.DB.profile[ 'Toggle Bind: ' .. toggle.name ] then
-            SetOverrideBindingClick( Hekili_Keyhandler, true, Hekili.DB.profile[ 'Toggle Bind: ' .. toggle.name ], "Hekili_Keyhandler", toggle.name )
-            overrideInitialized = true
-        end
-    end
 
 end
 
@@ -197,6 +182,11 @@ local function modifyElement( t, k, elem, value )
         return
     end
 
+    if entry[ elem ] then
+        entry.elem[ elem ] = entry[ elem ]
+        entry[ elem ] = nil
+    end
+
     if type( value ) == 'function' then
         entry.mods[ elem ] = setfenv( value, ns.state )
     else
@@ -253,7 +243,10 @@ function addItemSettings( key, itemID, options )
 
     options.disabled = {
         type = "toggle",
-        name = function () return format( "Disable %s via |cff00ccff[Use Items]|r", select( 2, GetItemInfo( itemID ) ) or ( "[" .. itemID .. "]" ) ) end,
+        name = function ()
+            local ability = class.abilities[ key ]
+            return format( "Disable %s via |cff00ccff[Use Items]|r", ( ability.link or ability.name ) or ( "[" .. itemID .. "]" ) )
+        end,
         desc = function( info )
             local output = "If disabled, the addon will not recommend this item via the |cff00ccff[Use Items]|r action.  " ..
                 "You can still manually include the item in your action lists with your own tailored criteria."
@@ -308,9 +301,7 @@ ns.addUsableItem = addUsableItem
 
 -- Wrapper for the ability table.
 local function modifyAbility( k, elem, value )
-
     modifyElement( 'abilities', k, elem, value )
-    
 end
 ns.modifyAbility = modifyAbility
 
@@ -402,8 +393,9 @@ local storeAuraElements = function( key, ... )
         local k, v = select( i, ... ), select( i+1, ... )
 
         if k and v then
-            if k == 'id' or k == 'name' then aura[k] = v
-            elseif type(v) == 'function' then aura.elem[k] = setfenv( v, state )
+            -- if k == 'id' or k == 'name' then aura[k] = v
+            --else
+            if type(v) == 'function' then aura.elem[k] = setfenv( v, state )
             else aura.elem[k] = v end
         end
     end
@@ -425,7 +417,7 @@ local function addAura( key, id, ... )
     if not class.auras[ key ] then
 
         class.auras[ key ] = setmetatable( {
-            id = id,
+            -- id = id,
             key = key,
             elem = {},
             mods = {}
@@ -434,7 +426,7 @@ local function addAura( key, id, ... )
         ns.commitKey( key )
 
         -- Add the elements, front-loading defaults and just overriding them if something else is specified.
-        storeAuraElements( key, 'name', name, 'duration', 30, 'max_stack', 1, ... )
+        storeAuraElements( key, 'name', name, 'id', id, 'duration', 30, 'max_stack', 1, ... )
 
         if class.auras[ key ].incapacitate then
             table.insert( class.incapacitates, key )
@@ -630,19 +622,8 @@ local function runHandler( key, no_start )
     state.predictionsOn[6] = nil
     state.predictionsOff[6] = nil
     
-    if state.time == 0 and not no_start and not ability.passive then
+    if state.combat == 0 and state.false_start == 0 and not no_start and not ability.passive then
         state.false_start = state.query_time - 0.01
-
-        --[[ Old System -- remove?
-        -- Generate fake weapon swings.
-        state.nextMH = state.query_time + 0.01
-        state.nextOH = state.swings.oh_speed and state.query_time + ( state.swings.oh_speed / 2 ) or 0
-
-        if state.swings.mh_actual < state.query_time then        
-            state.swings.mh_pseudo = state.query_time + 0.01
-            if state.swings.oh_speed then state.swings.oh_pseudo = state.query_time + ( state.swings.oh_speed / 2 ) end
-        end ]]
-        
     end
 
     state.cast_start = 0
@@ -1079,6 +1060,7 @@ addAbility( 'potion', {
     cooldown = 60,
     passive = true,
     toggle = 'potions',
+    texture = 967532,
     usable = function ()
         if not toggle.potions then return false end
 
@@ -1115,6 +1097,7 @@ addAbility( "use_items", {
     cooldown = 120,
     gcdType = 'off',
     toggle = 'cooldowns',
+    texture = 'Interface\\WorldMap\\Gear_64Grey',
 } )
 
 
@@ -1279,7 +1262,7 @@ addHandler( "tiny_oozeling_in_a_jar", function ()
 end )
 
 
-addUsableItem( "umbral_moonglaives", 147012 )
+-- addUsableItem( "umbral_moonglaives", 147012 )
 
 addAbility( "umbral_moonglaives", {
     id = -111,
