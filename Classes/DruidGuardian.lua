@@ -139,6 +139,24 @@ if UnitClassBase( 'player' ) == 'DRUID' then
         },
     } )
 
+    -- Function to remove any form currently active.
+    spec:RegisterStateFunction( "unshift", function()
+        removeBuff( "cat_form" )
+        removeBuff( "bear_form" )
+        removeBuff( "travel_form" )
+        removeBuff( "moonkin_form" )
+    end )
+    
+
+    -- Function to apply form that is passed into it via string.
+    spec:RegisterStateFunction( "shift", function( form )
+        removeBuff( "cat_form" )
+        removeBuff( "bear_form" )
+        removeBuff( "travel_form" )
+        removeBuff( "moonkin_form" )
+        applyBuff( form )
+    end )
+
     -- Abilities
     spec:RegisterAbilities( {
         barkskin = {
@@ -151,6 +169,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 136097,
             
             handler = function ()
+                applyBuff( "barkskin" )
             end,
         },
         
@@ -165,6 +184,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 132276,
             
             handler = function ()
+                shift("bear_form")
             end,
         },
         
@@ -179,6 +199,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 1033476,
             
             handler = function ()
+                applyBuff("bristling_fur")
             end,
         },
         
@@ -193,6 +214,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 132115,
             
             handler = function ()
+                shift("cat_form")
             end,
         },
         
@@ -207,6 +229,8 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 132120,
             
             handler = function ()
+                shift("cat_form")
+                applyBuff("dash")
             end,
         },
         
@@ -224,6 +248,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 136100,
             
             handler = function ()
+                unshift()
             end,
         },
         
@@ -260,6 +285,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 132091,
             
             handler = function ()
+                applyBuff("frenzied_regeneration")
             end,
         },
         
@@ -291,6 +317,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 136090,
             
             handler = function ()
+                unshift()
             end,
         },
         
@@ -319,6 +346,7 @@ if UnitClassBase( 'player' ) == 'DRUID' then
             texture = 571586,
             
             handler = function ()
+                applyBuff(102558)
             end,
         },
         
